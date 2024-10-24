@@ -1,14 +1,13 @@
 pub mod tab_mod;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::fs;
-use ratatui::{crossterm::event::{KeyCode, KeyModifiers}, widgets::{Paragraph, StatefulWidget}};
-use rodio::{OutputStream, Sink};
+use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use tab_mod::{Content, Input, SoundList, Tab, TabName};
 pub struct AppTab {
     pub tab : Vec<Tab>,
     pub selected_tab: usize,
-    pub Sender : Option<Sender<tab_mod::MusicState>>,
-    pub Receiver : Option<Receiver<f32>>,
+    pub sender : Option<Sender<tab_mod::MusicState>>,
+    pub receiver : Option<Receiver<f32>>,
 }
 
 impl AppTab {
@@ -31,8 +30,8 @@ impl AppTab {
 
             ],
             selected_tab : 0,
-            Sender : None,
-            Receiver : None,
+            sender : None,
+            receiver : None,
         }
     }
 
@@ -106,28 +105,30 @@ impl AppTab {
                         match key {
                             KeyCode::Up => {
                                 if keymod == KeyModifiers::SHIFT {
-                                    if let Some(receiver) = &mut self.Receiver {
+                                    // Receive Volume level
+                                    if let Some(receiver) = &mut self.receiver {
                                         for vol in receiver.try_iter() {
                                             soundlist.volume = vol}}
-                                    if let Some(x) = &mut self.Sender {
+                                    // Send new volume
+                                    if let Some(x) = &mut self.sender {
                                         x.send((tab_mod::MusicState::VolumeUp));
                                     }} else {soundlist.PreviousSong();}},
                             KeyCode::Down => {
                                 if keymod == KeyModifiers::SHIFT {
-                                    if let Some(receiver) = &mut self.Receiver {
+                                    if let Some(receiver) = &mut self.receiver {
                                         for vol in receiver.try_iter() {
                                             soundlist.volume = vol}
-                                    if let Some(x) = &mut self.Sender {
+                                    if let Some(x) = &mut self.sender {
                                         x.send((tab_mod::MusicState::VolumeDown));}
                                 }} else {soundlist.NextSong();}},
                             KeyCode::Enter => {
-                                if let Some(x) = &mut self.Sender {
+                                if let Some(x) = &mut self.sender {
                                     x.send((tab_mod::MusicState::Remove));}
                                 soundlist.currently_playing = "".to_owned();
                                 let (mts, wtr) = mpsc::channel();
                                 let (wts, mtr) = mpsc::channel();
-                                self.Sender = Some(mts);
-                                self.Receiver = Some(mtr);
+                                self.sender = Some(mts);
+                                self.receiver = Some(mtr);
                                 soundlist.play(wtr , wts);
                             },
                             KeyCode::Esc => {
@@ -135,9 +136,9 @@ impl AppTab {
                                 soundlist.Unselect();},
                             KeyCode::Backspace | KeyCode::Delete => {
                                 soundlist.currently_playing = "".to_owned();
-                                if let Some(x) = &mut self.Sender {x.send((tab_mod::MusicState::Remove));}
+                                if let Some(x) = &mut self.sender {x.send((tab_mod::MusicState::Remove));}
                             }
-                            KeyCode::Char(' ') => {if let Some(x) = &mut self.Sender {
+                            KeyCode::Char(' ') => {if let Some(x) = &mut self.sender {
                                 x.send((tab_mod::MusicState::PlayResume));}}
                             _ => {}
                         }
