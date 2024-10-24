@@ -1,4 +1,4 @@
-mod tab_mod;
+pub mod tab_mod;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::fs;
 use ratatui::{crossterm::event::{KeyCode, KeyModifiers}, widgets::{Paragraph, StatefulWidget}};
