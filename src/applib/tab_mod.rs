@@ -253,7 +253,7 @@ impl StatefulWidget for Tab {
                 .alignment(Alignment::Left)
             ).fg(Color::White)
             .title(
-                Title::from("| Press <Shift> + ▲ ▼ To naviguate |")
+                Title::from("| Press <Shift> + ▲ ▼ To navigate |")
                 .position(block::Position::Bottom)
                 .alignment(Alignment::Right)
             )
