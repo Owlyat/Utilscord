@@ -1,0 +1,10 @@
+[package]
+name = "Utilscord"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clipboard = "0.5.0"
+ratatui = { version = "0.28.1", features = ["crossterm"] }
+rodio = "0.19.0"
+tokio = { version = "1.41.0", features = ["rt"]} 
