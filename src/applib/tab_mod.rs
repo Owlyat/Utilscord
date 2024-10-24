@@ -316,13 +316,14 @@ pub struct SoundList {
 struct SoundItem {
     name : String,
     selected : bool,
+    local_volume : f32,
 }
 
 pub enum MusicState {
     PlayResume,
     Remove,
-    VolumeUp,
-    VolumeDown,
+    VolumeUp(f32),
+    VolumeDown(f32),
 }
 
 impl SoundList {
@@ -340,6 +341,10 @@ impl SoundList {
     }
 
     pub fn play(&mut self, Receiver: Receiver<MusicState>, sender : Sender<f32>) {
+
+        // Offset Volume on each song
+        let local_volume = self.mp3_files[self.state.selected().unwrap_or(0)].local_volume;
+
         self.currently_playing = self.mp3_files[self.state.selected().unwrap()].name.clone();
         let arc_self = Arc::new(Mutex::new(self.clone()));
         thread::spawn(move || {
@@ -357,17 +362,42 @@ impl SoundList {
                             if sink.is_paused() {sink.play();}
                             else {sink.pause();}
                         }
-                        MusicState::VolumeDown => {
+                        MusicState::VolumeDown(x) => {
+                            // No volume
                             if sink.volume() == 0.0 {
-                                sender.send((sink.volume())); return;}
-                            sink.set_volume(format!("{:.1}",(sink.volume() - 0.1).abs()).parse().unwrap());
-                            sender.send((sink.volume()));
+                                match sender.send((0.0)) {
+                                    Ok(_) => {},
+                                    Err(_) => {}
+                                }; 
+                                return;
+                            };
+                            
+                            // aply volume
+                            sink.set_volume(match format!("{:.1}",(sink.volume() - 0.1).abs()).parse::<f32>() {
+                                Ok(f) => f,
+                                Err(e) => {1.0},
+                            } );
+                            match sender.send((sink.volume())) {
+                                Ok(_) => {},
+                                Err(_) => {},
+                            };
                         }
-                        MusicState::VolumeUp => {
+                        MusicState::VolumeUp(x) => {
+                            // Max Volume
                             if sink.volume() == 2.0 {
-                                sender.send((sink.volume())); return;}
+                                match sender.send((sink.volume())) {
+                                    Ok(_) => {},
+                                    Err(_) => {},
+                                }; 
+                                return;
+                            };
+
+                            // aply volume
                             sink.set_volume(format!("{:.1}",(sink.volume() + 0.1).abs()).parse().unwrap());
-                            sender.send((sink.volume()));
+                            match sender.send((sink.volume())) {
+                                Ok(_) => {},
+                                Err(_) => {}
+                            };
                         }
                     }
                 }
@@ -438,7 +468,7 @@ impl SoundList {
                     if let Some(extension) = path.extension() {
                         if extension == "mp3" {
                             if let Some(file_name) = path.file_name() {
-                                mp3_files.push(SoundItem {name : file_name.to_string_lossy().into_owned(), selected : false});
+                                mp3_files.push(SoundItem {name : file_name.to_string_lossy().into_owned(), selected : false, local_volume : 0.0});
                             }
                         }
                     }

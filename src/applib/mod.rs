@@ -111,7 +111,7 @@ impl AppTab {
                                             soundlist.volume = vol}}
                                     // Send new volume
                                     if let Some(x) = &mut self.sender {
-                                        x.send((tab_mod::MusicState::VolumeUp));
+                                        x.send((tab_mod::MusicState::VolumeUp(0.0)));
                                     }} else {soundlist.PreviousSong();}},
                             KeyCode::Down => {
                                 if keymod == KeyModifiers::SHIFT {
@@ -119,7 +119,7 @@ impl AppTab {
                                         for vol in receiver.try_iter() {
                                             soundlist.volume = vol}
                                     if let Some(x) = &mut self.sender {
-                                        x.send((tab_mod::MusicState::VolumeDown));}
+                                        x.send((tab_mod::MusicState::VolumeDown(0.0)));}
                                 }} else {soundlist.NextSong();}},
                             KeyCode::Enter => {
                                 if let Some(x) = &mut self.sender {
