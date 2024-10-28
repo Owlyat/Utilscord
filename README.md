@@ -14,8 +14,8 @@ Quit | Ctrl + C / Ctrl + Q
 |play| Enter |
 |pause| Space |
 |stop| Backspace |
-|volume up| Shift + Up Arrow |
-|volume down| Shift + Down Arrow |
+|Local volume| Shift + Up/Down Arrow |
+|General volume| +/- |
 | Exit | Esc |
 
 

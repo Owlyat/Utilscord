@@ -99,31 +99,57 @@ impl AppTab {
                             _ => {return;}
                     }}
                 }
-                // Selcted Soundlist 
+                // Selected Soundlist 
                 else if soundlist.selected {
                     if soundlist.state.selected() != None { 
                         match key {
+                            
                             KeyCode::Up => {
                                 if keymod == KeyModifiers::SHIFT {
-                                    // Receive Volume level
-                                    if let Some(receiver) = &mut self.receiver {
-                                        for vol in receiver.try_iter() {
-                                            soundlist.volume = vol}}
-                                    // Send new volume
-                                    if let Some(x) = &mut self.sender {
-                                        x.send((tab_mod::MusicState::VolumeUp(0.0)));
-                                    }} else {soundlist.PreviousSong();}},
+                                    // Modify local volume
+                                    match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), soundlist.get_local_volume_of_selected_item() + 0.1) {
+                                        Ok(_) => {}
+                                        Err(e) => {panic!("{}",e)}
+                                    }
+                                    // Check if the playing music is the file selected on the list
+                                    if soundlist.currently_playing == soundlist.mp3_files[soundlist.state.selected().unwrap()].name {
+                                        if let Some(sender) = &mut self.sender {
+                                            // Send local volume
+                                            match sender.send(tab_mod::MusicState::LocalVolumeChanged(
+                                                soundlist.get_local_volume_of_selected_item()
+                                            )) {_ => {}}
+                                        }
+
+                                    }
+                                } else {soundlist.PreviousSong();}
+                            }
+                                    
+                           
                             KeyCode::Down => {
                                 if keymod == KeyModifiers::SHIFT {
-                                    if let Some(receiver) = &mut self.receiver {
-                                        for vol in receiver.try_iter() {
-                                            soundlist.volume = vol}
-                                    if let Some(x) = &mut self.sender {
-                                        x.send((tab_mod::MusicState::VolumeDown(0.0)));}
-                                }} else {soundlist.NextSong();}},
+                                    // Modify local volume
+                                    match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), (soundlist.get_local_volume_of_selected_item() - 0.1).clamp(-2.0, 2.0)) {
+                                        Ok(_) => {}
+                                        Err(e) => {panic!("{}",e)}
+                                    }
+                                    // Check if the playing music is the file selected on the list
+                                    if soundlist.currently_playing == soundlist.mp3_files[soundlist.state.selected().unwrap()].name {
+                                        if let Some(sender) = &mut self.sender {
+                                            // Send local volume
+                                            match sender.send(tab_mod::MusicState::LocalVolumeChanged(
+                                                soundlist.get_local_volume_of_selected_item()
+                                            )) {_ => {}}
+                                        }
+
+                                    }
+                                } 
+                                else {soundlist.NextSong();}},
+                           
                             KeyCode::Enter => {
-                                if let Some(x) = &mut self.sender {
-                                    x.send((tab_mod::MusicState::Remove));}
+                                if let Some(sender) = &mut self.sender {
+                                    match sender.send((tab_mod::MusicState::Remove)) {
+                                        _ => {}
+                                    };}
                                 soundlist.currently_playing = "".to_owned();
                                 let (mts, wtr) = mpsc::channel();
                                 let (wts, mtr) = mpsc::channel();
@@ -131,15 +157,40 @@ impl AppTab {
                                 self.receiver = Some(mtr);
                                 soundlist.play(wtr , wts);
                             },
+                           
                             KeyCode::Esc => {
                                 soundlist.currently_playing = "".to_owned();
                                 soundlist.Unselect();},
+                           
                             KeyCode::Backspace | KeyCode::Delete => {
                                 soundlist.currently_playing = "".to_owned();
-                                if let Some(x) = &mut self.sender {x.send((tab_mod::MusicState::Remove));}
+                                if let Some(x) = &mut self.sender {
+                                    match x.send((tab_mod::MusicState::Remove)) {
+                                        _=> {}
+                                    };}
                             }
-                            KeyCode::Char(' ') => {if let Some(x) = &mut self.sender {
-                                x.send((tab_mod::MusicState::PlayResume));}}
+                            
+                            KeyCode::Char(' ') => {if let Some(sender) = &mut self.sender {
+                                match sender.send((tab_mod::MusicState::PlayResume)) {
+                                    _ => {}
+                                };}}
+                            
+                            KeyCode::Char('+') => {
+                                soundlist.volume += 0.1;
+                                soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
+                                if let Some(sender) = &mut self.sender {
+                                    match sender.send(tab_mod::MusicState::VolumeChanged(soundlist.volume)) {
+                                        _ => {}
+                                    };}
+                            }
+                           
+                            KeyCode::Char('-') => {
+                                soundlist.volume -= 0.1;
+                                soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
+                                if let Some(sender) = &mut self.sender {
+                                    match sender.send(tab_mod::MusicState::VolumeChanged(soundlist.volume)) {
+                                        _ => {}
+                                    };}}
                             _ => {}
                         }
                     }

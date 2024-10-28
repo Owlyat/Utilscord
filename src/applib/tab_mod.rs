@@ -309,21 +309,21 @@ pub struct SoundList {
     pub current_dir: String, // Store the current directory path
     pub selected : bool,
     pub currently_playing : String,
-    pub volume : f32,
+    pub volume : f32, // General Volume
 }
 
 #[derive(Clone, Debug)]
-struct SoundItem {
-    name : String,
+pub struct SoundItem {
+    pub name : String,
     selected : bool,
-    local_volume : f32,
+    local_volume : f32, // Local Volume
 }
 
 pub enum MusicState {
     PlayResume,
     Remove,
-    VolumeUp(f32),
-    VolumeDown(f32),
+    VolumeChanged(f32),
+    LocalVolumeChanged(f32),
 }
 
 impl SoundList {
@@ -336,15 +336,34 @@ impl SoundList {
             current_dir: dir.clone(),
             selected : false,
             currently_playing : String::new(),
-            volume : 0.0,
+            volume : 1.0,
         }
+    }
+
+    pub fn get_local_volume_from_index(&self, index : usize) -> Result<f32,()> {
+        if self.mp3_files.len() -1 <= index {
+            return Ok(self.mp3_files[index].local_volume)
+        } else {return Err(())}
+    }
+
+    pub fn get_local_volume_of_selected_item(&self) -> f32 {
+        self.mp3_files[self.state.selected().unwrap()].local_volume
+    }
+
+    pub fn modify_local_volume(&mut self, index : usize, new_volume : f32) -> Result<(),String> {
+        if index <= self.mp3_files.len() - 1 {
+            self.mp3_files[index].local_volume = new_volume.clamp(-2.0, 2.0);
+            return Ok(())
+        } else {return Err(format!("Index : [{}] is out of bound \n    => Lenght : {}\n    {} <= {}", index, self.mp3_files.len() -1, index, self.mp3_files.len() - 1))};
     }
 
     pub fn play(&mut self, Receiver: Receiver<MusicState>, sender : Sender<f32>) {
 
+        // local index
+        let siindex = self.state.selected().unwrap();
         // Offset Volume on each song
         let local_volume = self.mp3_files[self.state.selected().unwrap_or(0)].local_volume;
-
+        let general_volume = self.volume;
         self.currently_playing = self.mp3_files[self.state.selected().unwrap()].name.clone();
         let arc_self = Arc::new(Mutex::new(self.clone()));
         thread::spawn(move || {
@@ -354,49 +373,32 @@ impl SoundList {
             let file = BufReader::new(File::open(format!("{}/{}",soundlist.current_dir, soundlist.mp3_files[soundlist.state.selected().unwrap()].name)).unwrap());
             let source = Decoder::new(file).unwrap();
             sink.append(source);
+            let mut gv : f32 = general_volume;
+            let mut lv : f32 = local_volume;
             loop {
+                sink.set_volume(gv + lv);
                 for i in Receiver.iter() {
                     match i {
-                        MusicState::Remove => {sink.clear();sender.send((sink.volume()));},
+                        MusicState::Remove => {sink.clear(); match sender.send(sink.volume()) {_=> {}};},
                         MusicState::PlayResume => {
                             if sink.is_paused() {sink.play();}
                             else {sink.pause();}
                         }
-                        MusicState::VolumeDown(x) => {
-                            // No volume
-                            if sink.volume() == 0.0 {
-                                match sender.send((0.0)) {
-                                    Ok(_) => {},
-                                    Err(_) => {}
-                                }; 
-                                return;
-                            };
-                            
+                        MusicState::VolumeChanged(new_volume) => {
                             // aply volume
-                            sink.set_volume(match format!("{:.1}",(sink.volume() - 0.1).abs()).parse::<f32>() {
-                                Ok(f) => f,
-                                Err(e) => {1.0},
-                            } );
-                            match sender.send((sink.volume())) {
+                            gv = new_volume;
+                            sink.set_volume(gv + lv);
+                            match sender.send(sink.volume()) {
                                 Ok(_) => {},
                                 Err(_) => {},
                             };
-                        }
-                        MusicState::VolumeUp(x) => {
-                            // Max Volume
-                            if sink.volume() == 2.0 {
-                                match sender.send((sink.volume())) {
-                                    Ok(_) => {},
-                                    Err(_) => {},
-                                }; 
-                                return;
-                            };
-
-                            // aply volume
-                            sink.set_volume(format!("{:.1}",(sink.volume() + 0.1).abs()).parse().unwrap());
-                            match sender.send((sink.volume())) {
+                        },
+                        MusicState::LocalVolumeChanged(new_local_volume) => {
+                            lv = new_local_volume;
+                            sink.set_volume(gv + lv);
+                            match sender.send(sink.volume()) {
                                 Ok(_) => {},
-                                Err(_) => {}
+                                Err(_) => {},
                             };
                         }
                     }
@@ -414,7 +416,10 @@ impl SoundList {
         self.mp3_files.iter()
         .map(|si| {
             if let Some(i) = self.state.selected() {
-                return ListItem::new(si.name.clone()).fg(Color::White)
+                return ListItem::new(if let 0.0 = format!("{:.1}",si.local_volume).trim().parse::<f32>().unwrap() {
+                    format!("{}",si.name.clone())} else {
+                        format!("{} [Local Volume : {:.1}]",si.name.clone(), si.local_volume)})
+                    .fg(Color::White)
             }
             ListItem::new(si.name.clone())
         })
@@ -511,7 +516,7 @@ impl StatefulWidget for SoundList {
             })
             .title(
                 Title::from(match state.selected() {
-                    Some(_) => {"| <Enter> Play | <Space> Pause | <Backspace> Remove | <Shift> + ▲ ▼ Volume |"},
+                    Some(_) => {"| <Enter> Play | <Space> Pause | <Backspace> Remove | <Shift> + ▲ ▼ Local Volume | +/- General Volume |"},
                     None => {""}
                 })
                 .alignment(Alignment::Center)
@@ -519,11 +524,19 @@ impl StatefulWidget for SoundList {
             )
             .title(
                 Title::from(match state.selected() {
-                    Some(_) => {format!("{} Vol : {}",self.currently_playing.clone(), self.volume)}
+                    Some(_) => {format!("Playing : {}",self.currently_playing.clone())}
                     None => {"-".to_string()}
                 })
                 .alignment(Alignment::Right)
                 .position(block::Position::Top)
+            )
+            .title(
+                Title::from(match state.selected() {
+                    Some(_) => {format!("|General Volume : {:.1}|", self.volume)}
+                    None => {"".to_string()}
+                })
+                .alignment(Alignment::Right)
+                .position(block::Position::Bottom)
             )
             )
             .highlight_style(Style::default().bg(Color::White).fg(Color::Black))
