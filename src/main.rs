@@ -1,4 +1,5 @@
 use std::time::Duration;
+use applib::tab_mod::Content;
 use applib::AppTab;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
@@ -29,7 +30,7 @@ impl App {
         let mut terminal = ratatui::init();
 
         while !self.should_quit {
-            
+
             terminal.draw(|frame : &mut Frame| {
                 frame.render_stateful_widget(
                     self.tabs.tab[self.tabs.selected_tab].clone(),

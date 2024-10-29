@@ -105,9 +105,9 @@ impl AppTab {
                         match key {
                             
                             KeyCode::Up => {
-                                if keymod == KeyModifiers::SHIFT {
+                                if keymod == KeyModifiers::SHIFT && !soundlist.editingfades {
                                     // Modify local volume
-                                    match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), soundlist.get_local_volume_of_selected_item() + 0.1) {
+                                    match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), soundlist.get_local_volume_of_selected_item() + 0.01) {
                                         Ok(_) => {}
                                         Err(e) => {panic!("{}",e)}
                                     }
@@ -126,9 +126,9 @@ impl AppTab {
                                     
                            
                             KeyCode::Down => {
-                                if keymod == KeyModifiers::SHIFT {
+                                if keymod == KeyModifiers::SHIFT && !soundlist.editingfades  {
                                     // Modify local volume
-                                    match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), (soundlist.get_local_volume_of_selected_item() - 0.1).clamp(-2.0, 2.0)) {
+                                    match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), (soundlist.get_local_volume_of_selected_item() - 0.01).clamp(-2.0, 2.0)) {
                                         Ok(_) => {}
                                         Err(e) => {panic!("{}",e)}
                                     }
@@ -159,7 +159,9 @@ impl AppTab {
                             },
                            
                             KeyCode::Esc => {
-                                soundlist.currently_playing = "".to_owned();
+                                if soundlist.editingfades {
+                                    soundlist.editingfades = false;
+                                }
                                 soundlist.Unselect();},
                            
                             KeyCode::Backspace | KeyCode::Delete => {
@@ -176,7 +178,7 @@ impl AppTab {
                                 };}}
                             
                             KeyCode::Char('+') => {
-                                soundlist.volume += 0.1;
+                                soundlist.volume += 0.01;
                                 soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
                                 if let Some(sender) = &mut self.sender {
                                     match sender.send(tab_mod::MusicState::VolumeChanged(soundlist.volume)) {
@@ -185,12 +187,16 @@ impl AppTab {
                             }
                            
                             KeyCode::Char('-') => {
-                                soundlist.volume -= 0.1;
+                                soundlist.volume -= 0.01;
                                 soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
                                 if let Some(sender) = &mut self.sender {
                                     match sender.send(tab_mod::MusicState::VolumeChanged(soundlist.volume)) {
                                         _ => {}
                                     };}}
+
+                            KeyCode::Char('f') => {
+                                soundlist.toggle_fade_edition();
+                            }
                             _ => {}
                         }
                     }

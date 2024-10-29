@@ -3,7 +3,6 @@ use clipboard::windows_clipboard::WindowsClipboardContext;
 use clipboard::ClipboardProvider;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
-use style::Stylize;
 use rodio::{Decoder,OutputStream,Sink};
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
@@ -271,16 +270,20 @@ impl StatefulWidget for Tab {
 
                 let [ tab_content, tab_footer] = vert.areas(tab_content);
 
-                match self.content {
-                    Content::MainMenu(soundlist,Input ) => {
+                if let Content::MainMenu(soundlist,input ) = self.content {
+                    
+                    let mut fieldtitle = input.FieldTitle.clone();
+                    input.render(tab_content, buf, &mut fieldtitle);
 
-                        let mut copy = Input.clone();
-                        Input.render(tab_content, buf, &mut copy.FieldTitle);
+                    let mut slcopy = soundlist.clone();
 
-                        let mut copy = soundlist.clone();
-                        soundlist.render(tab_footer, buf, &mut copy.state);
-                    },
-                    Content::None => {}
+                    if slcopy.editingfades == true{
+                        slcopy.mp3_files[slcopy.state.selected().unwrap()].fade.render(tab_footer, buf);
+                    } else {
+                        soundlist.render(tab_footer, buf, &mut slcopy.state);
+                    }
+                    
+                    
                 }
             },
             TabName::Messages => {
@@ -310,6 +313,7 @@ pub struct SoundList {
     pub selected : bool,
     pub currently_playing : String,
     pub volume : f32, // General Volume
+    pub editingfades : bool,
 }
 
 #[derive(Clone, Debug)]
@@ -317,6 +321,27 @@ pub struct SoundItem {
     pub name : String,
     selected : bool,
     local_volume : f32, // Local Volume
+    fade : SoundItemFade
+}
+
+#[derive(Clone, Debug, Copy)]
+pub enum SoundItemFade {
+    None,
+    FadeIn(f32),
+    FadeOut(f32),
+    FadeInAndOut(f32,f32)
+}
+
+impl Widget for SoundItemFade {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        Block::bordered()
+        .title(
+            Title::from("Fades")
+            .alignment(Alignment::Center)
+            .position(block::Position::Top)
+        )
+        .render(area, buf);
+    }
 }
 
 pub enum MusicState {
@@ -337,7 +362,12 @@ impl SoundList {
             selected : false,
             currently_playing : String::new(),
             volume : 1.0,
+            editingfades : false,
         }
+    }
+
+    pub fn toggle_fade_edition(&mut self) {
+        self.editingfades = !self.editingfades
     }
 
     pub fn get_local_volume_from_index(&self, index : usize) -> Result<f32,()> {
@@ -376,7 +406,7 @@ impl SoundList {
             let mut gv : f32 = general_volume;
             let mut lv : f32 = local_volume;
             loop {
-                sink.set_volume(gv + lv);
+                if gv + lv <= 0.0 {sink.set_volume(0.0);} else {sink.set_volume(gv + lv);}
                 for i in Receiver.iter() {
                     match i {
                         MusicState::Remove => {sink.clear(); match sender.send(sink.volume()) {_=> {}};},
@@ -387,20 +417,24 @@ impl SoundList {
                         MusicState::VolumeChanged(new_volume) => {
                             // aply volume
                             gv = new_volume;
-                            sink.set_volume(gv + lv);
-                            match sender.send(sink.volume()) {
-                                Ok(_) => {},
-                                Err(_) => {},
-                            };
+                            if gv + lv <= 0.0 {sink.set_volume(0.0);} else {
+                                sink.set_volume(gv + lv);
+                                match sender.send(sink.volume()) {
+                                    Ok(_) => {},
+                                    Err(_) => {},
+                                };
+                            }
                         },
                         MusicState::LocalVolumeChanged(new_local_volume) => {
                             lv = new_local_volume;
-                            sink.set_volume(gv + lv);
-                            match sender.send(sink.volume()) {
-                                Ok(_) => {},
-                                Err(_) => {},
-                            };
-                        }
+                            if gv + lv <= 0.0 {sink.set_volume(0.0);} else {
+                                sink.set_volume(gv + lv);
+                                match sender.send(sink.volume()) {
+                                    Ok(_) => {},
+                                    Err(_) => {},
+                                };
+                            }
+                        },
                     }
                 }
                 if sink.empty() {
@@ -408,35 +442,62 @@ impl SoundList {
                 }
             }
 
-        });
-
+        }
+    );
     }
 
     fn get_list_items(&self) -> Vec<ListItem> {
         self.mp3_files.iter()
         .map(|si| {
-            if let Some(i) = self.state.selected() {
-                return ListItem::new(if let 0.0 = format!("{:.1}",si.local_volume).trim().parse::<f32>().unwrap() {
-                    format!("{}",si.name.clone())} else {
-                        format!("{} [Local Volume : {:.1}]",si.name.clone(), si.local_volume)})
-                    .fg(Color::White)
-            }
-            ListItem::new(si.name.clone())
+            // Check if local volume is not edited
+            return ListItem::new(
+                if let 0.0 = format!("{:.1}",si.local_volume).trim().parse::<f32>().unwrap() {
+                Text::from(vec![
+                    // Song Title
+                    Line::from(vec![
+                        Span::styled(si.name.clone(), Style::default().fg(Color::White)),
+                        ]).left_aligned(),
+                    // Fade Text
+                    Line::from(vec![
+                        if let true = si.selected {
+                            Span::styled("Press F to edit Fades", Style::default().fg(Color::Yellow))
+                        } else {Span::styled("", Style::default().fg(Color::White))}
+                        ]).right_aligned()
+                ])
+                } else {
+                    Text::from(vec![
+                        // Song Title
+                        Line::from(vec![Span::styled(si.name.clone(), Style::default().fg(Color::White)),]).left_aligned(),
+                        // Local Volume
+                        Line::from(Span::styled(format!("Local Volume : {:.2}",si.local_volume), Style::default().fg(Color::Yellow))).centered(),
+                        // Fade Text
+                        Line::from(vec![if let true = si.selected {
+                                Span::styled("Press F to edit Fades", Style::default().fg(Color::Yellow))
+                            } else {
+                                Span::styled("", Style::default().fg(Color::White))
+                        }]).right_aligned()
+                    ])
+                }
+            );
+        ListItem::new(si.name.clone())
         })
         .collect()
     }
 
     pub fn Unselect(&mut self) {
+        self.toggle_status();
         self.state.select(None);
         self.toggle_status();
     }
 
     pub fn NextSong(&mut self) {
+        self.toggle_status();
         self.state.select_next();
         self.toggle_status();
     }
     
     pub fn PreviousSong(&mut self) {
+        self.toggle_status();
         if self.state.selected().unwrap() == 0 {
             self.state.select(Some(self.mp3_files.len() -1));
             self.toggle_status();
@@ -473,7 +534,7 @@ impl SoundList {
                     if let Some(extension) = path.extension() {
                         if extension == "mp3" {
                             if let Some(file_name) = path.file_name() {
-                                mp3_files.push(SoundItem {name : file_name.to_string_lossy().into_owned(), selected : false, local_volume : 0.0});
+                                mp3_files.push(SoundItem {name : file_name.to_string_lossy().into_owned(), selected : false, local_volume : 0.0, fade : SoundItemFade::None});
                             }
                         }
                     }
@@ -532,7 +593,7 @@ impl StatefulWidget for SoundList {
             )
             .title(
                 Title::from(match state.selected() {
-                    Some(_) => {format!("|General Volume : {:.1}|", self.volume)}
+                    Some(_) => {format!("|General Volume : {:.2}|", self.volume)}
                     None => {"".to_string()}
                 })
                 .alignment(Alignment::Right)
