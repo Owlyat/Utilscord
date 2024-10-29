@@ -2,7 +2,7 @@ pub mod tab_mod;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::fs;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
-use tab_mod::{Content, Input, SoundList, Tab, TabName};
+use tab_mod::{Content, Input, SoundItem, SoundItemFade, SoundList, Tab, TabName};
 pub struct AppTab {
     pub tab : Vec<Tab>,
     pub selected_tab: usize,
@@ -100,12 +100,12 @@ impl AppTab {
                     }}
                 }
                 // Selected Soundlist 
-                else if soundlist.selected {
+                else if soundlist.selected && !soundlist.editingfades{
                     if soundlist.state.selected() != None { 
                         match key {
                             
                             KeyCode::Up => {
-                                if keymod == KeyModifiers::SHIFT && !soundlist.editingfades {
+                                if keymod == KeyModifiers::SHIFT {
                                     // Modify local volume
                                     match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), soundlist.get_local_volume_of_selected_item() + 0.01) {
                                         Ok(_) => {}
@@ -126,7 +126,7 @@ impl AppTab {
                                     
                            
                             KeyCode::Down => {
-                                if keymod == KeyModifiers::SHIFT && !soundlist.editingfades  {
+                                if keymod == KeyModifiers::SHIFT {
                                     // Modify local volume
                                     match soundlist.modify_local_volume(soundlist.state.selected().unwrap(), (soundlist.get_local_volume_of_selected_item() - 0.01).clamp(-2.0, 2.0)) {
                                         Ok(_) => {}
@@ -205,6 +205,18 @@ impl AppTab {
                             KeyCode::Enter => {soundlist.PromptSelection()},
                             _ => {}
                         }
+                    }
+                } else if soundlist.editingfades {
+                    let si = &mut soundlist.mp3_files[soundlist.state.selected().unwrap()];
+                    match key {
+                        KeyCode::Up => {si.previous_fade_tab();},
+                        KeyCode::Down => {si.next_fade_tab();},
+                        KeyCode::Left => {},
+                        KeyCode::Right => {},
+                        KeyCode::Enter => {si.edit();}
+                        KeyCode::Char('f') => {soundlist.toggle_fade_edition();},
+                        KeyCode::Esc => {soundlist.toggle_fade_edition();},
+                        _ => {}
                     }
                 }
             }}

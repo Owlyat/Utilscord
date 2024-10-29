@@ -278,7 +278,7 @@ impl StatefulWidget for Tab {
                     let mut slcopy = soundlist.clone();
 
                     if slcopy.editingfades == true{
-                        slcopy.mp3_files[slcopy.state.selected().unwrap()].fade.render(tab_footer, buf);
+                        slcopy.mp3_files[slcopy.state.selected().unwrap()].clone().render(tab_footer, buf, &mut slcopy.mp3_files[slcopy.state.selected().unwrap()].selected_fade_tab);
                     } else {
                         soundlist.render(tab_footer, buf, &mut slcopy.state);
                     }
@@ -321,7 +321,31 @@ pub struct SoundItem {
     pub name : String,
     selected : bool,
     local_volume : f32, // Local Volume
-    fade : SoundItemFade
+    fade : SoundItemFade,
+    selected_fade_tab : usize,
+    fade_tab_content : Vec<Input>,
+}
+
+impl SoundItem {
+    pub fn next_fade_tab(&mut self) {
+        if self.selected_fade_tab != 1 {self.selected_fade_tab += 1;}
+        for i in &mut self.fade_tab_content {
+            i.selected = false
+        }
+        self.fade_tab_content[self.selected_fade_tab].selected = true;
+    }
+
+    pub fn previous_fade_tab(&mut self) {
+        if self.selected_fade_tab != 0 {self.selected_fade_tab -= 1};
+        for i in &mut self.fade_tab_content {
+            i.selected = false
+        }
+        self.fade_tab_content[self.selected_fade_tab].selected = true;
+    }
+
+    pub fn edit(&mut self) {
+        self.fade_tab_content[self.selected_fade_tab].input_mode = !self.fade_tab_content[self.selected_fade_tab].input_mode
+    }
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -332,15 +356,32 @@ pub enum SoundItemFade {
     FadeInAndOut(f32,f32)
 }
 
-impl Widget for SoundItemFade {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        Block::bordered()
+impl StatefulWidget for SoundItem {
+    type State = usize;
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut usize) {
+        let popup = Block::bordered()
         .title(
-            Title::from("Fades")
+            Title::from("Fades".yellow())
             .alignment(Alignment::Center)
             .position(block::Position::Top)
-        )
-        .render(area, buf);
+        ).fg(Color::Yellow)
+        .title(
+            Title::from("| Press <F> or <ESC> To Go Back |")
+            .alignment(Alignment::Center)
+            .position(block::Position::Bottom)
+        );
+        let content = popup.inner(area);
+        popup.render(area, buf);
+        let layout = Layout::vertical([
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
+        ]);
+        let [top, bottom] = layout.areas(content);
+        
+        let mut copy = self.fade_tab_content.clone(); 
+
+        copy[0].clone().render(top, buf,&mut copy[0].FieldTitle );
+        copy[1].clone().render(bottom, buf, &mut copy[1].FieldTitle);
     }
 }
 
@@ -451,18 +492,18 @@ impl SoundList {
         .map(|si| {
             // Check if local volume is not edited
             return ListItem::new(
-                if let 0.0 = format!("{:.1}",si.local_volume).trim().parse::<f32>().unwrap() {
+                if let 0.0 = format!("{:.2}",si.local_volume).trim().parse::<f32>().unwrap() {
                 Text::from(vec![
                     // Song Title
                     Line::from(vec![
                         Span::styled(si.name.clone(), Style::default().fg(Color::White)),
-                        ]).left_aligned(),
+                        ]).left_aligned().fg(Color::White),
                     // Fade Text
                     Line::from(vec![
                         if let true = si.selected {
-                            Span::styled("Press F to edit Fades", Style::default().fg(Color::Yellow))
+                            Span::styled("Press F to edit Fades", Style::default())
                         } else {Span::styled("", Style::default().fg(Color::White))}
-                        ]).right_aligned()
+                        ]).right_aligned().fg(Color::Yellow)
                 ])
                 } else {
                     Text::from(vec![
@@ -534,7 +575,7 @@ impl SoundList {
                     if let Some(extension) = path.extension() {
                         if extension == "mp3" {
                             if let Some(file_name) = path.file_name() {
-                                mp3_files.push(SoundItem {name : file_name.to_string_lossy().into_owned(), selected : false, local_volume : 0.0, fade : SoundItemFade::None});
+                                mp3_files.push(SoundItem {name : file_name.to_string_lossy().into_owned(), selected : false, local_volume : 0.0, fade : SoundItemFade::None, selected_fade_tab : 0, fade_tab_content : vec![Input {FieldTitle : "Fade In Time".to_owned(), selected: true, ..Default::default()}, Input {FieldTitle: "Fade Out Time".to_owned(), ..Default::default()}]});
                             }
                         }
                     }

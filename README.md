@@ -15,12 +15,14 @@ Quit | Ctrl + C / Ctrl + Q
 |pause| Space |
 |stop| Backspace |
 |Local volume| Shift + Up/Down Arrow |
+| Edit Fades | F |
 |General volume| +/- |
 | Exit | Esc |
 
 
 ### To do (in priority from top to bottom) :
-- [ ] A General volume + A dedicated assignable volume for each sound
+- [x] A General volume + A dedicated assignable volume for each sound
 - [ ] Adjustable Fade In and Fade Out for each sound
 - [ ] Implement [dante-control-rs](https://docs.rs/dante-control-rs/0.8.2/dante_control_rs/) to manage dante devices
+- [ ] OSC Controls
 
