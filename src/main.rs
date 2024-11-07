@@ -72,8 +72,8 @@ impl App {
                 for move_key_code in self.move_key_code.clone() {
                     if key.code == move_key_code && key.modifiers == KeyModifiers::SHIFT {
 
-                        if let crate::applib::tab_mod::Content::MainMenu(x,y) = &self.tabs.tab[self.tabs.selected_tab].content {
-                            if !y.input_mode && x.currently_playing.is_empty() {
+                        if let crate::applib::tab_mod::Content::MainMenu(soundlist,input) = &self.tabs.tab[self.tabs.selected_tab].content {
+                            if !input.input_mode && soundlist.currently_playing.is_empty() {
                                 match key.code {
                                     KeyCode::Up => {self.tabs.content_previous();},
                                     KeyCode::Down => {self.tabs.content_next();},

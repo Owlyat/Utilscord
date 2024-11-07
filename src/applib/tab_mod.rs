@@ -1,6 +1,8 @@
 use block::Title;
 use clipboard::windows_clipboard::WindowsClipboardContext;
 use clipboard::ClipboardProvider;
+use lofty::error::LoftyError;
+use lofty::file::AudioFile;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 use rodio::{Decoder,OutputStream,Sink};
@@ -11,7 +13,9 @@ use std::io::BufReader;
 use std::fs::{self, File};
 use std::path::Path;
 use std::thread;
+use std::time::Duration;
 use clipboard;
+use lofty::read_from_path;
 
 #[derive(Clone, Debug)]
 pub enum TabName {
@@ -130,10 +134,6 @@ impl Input {
 
     pub fn reset_cursor(&mut self) {
         self.character_index = 0;
-    }
-
-    pub fn submit_message(&mut self) {
-        self.toggle();
     }
 
     pub fn paste(&mut self) {
@@ -320,10 +320,10 @@ pub struct SoundList {
 pub struct SoundItem {
     pub name : String,
     selected : bool,
-    local_volume : f32, // Local Volume
+    pub local_volume : f32, // Local Volume
     fade : SoundItemFade,
     selected_fade_tab : usize,
-    fade_tab_content : Vec<Input>,
+    pub fade_tab_content : Vec<Input>,
 }
 
 impl SoundItem {
@@ -408,6 +408,8 @@ impl SoundList {
     }
 
     pub fn toggle_fade_edition(&mut self) {
+        if self.mp3_files[self.state.selected().unwrap()].fade_tab_content[0].input_mode {return}
+        if self.mp3_files[self.state.selected().unwrap()].fade_tab_content[1].input_mode {return}
         self.editingfades = !self.editingfades
     }
 
@@ -450,7 +452,11 @@ impl SoundList {
                 if gv + lv <= 0.0 {sink.set_volume(0.0);} else {sink.set_volume(gv + lv);}
                 for i in Receiver.iter() {
                     match i {
-                        MusicState::Remove => {sink.clear(); match sender.send(sink.volume()) {_=> {}};},
+                        MusicState::Remove => {
+                            sink.clear(); 
+                            match sender.send(sink.volume()) {_=> {}};
+                            break;
+                        },
                         MusicState::PlayResume => {
                             if sink.is_paused() {sink.play();}
                             else {sink.pause();}
@@ -482,12 +488,20 @@ impl SoundList {
                     break;
                 }
             }
+            drop(Receiver);
 
         }
     );
     }
 
     fn get_list_items(&self) -> Vec<ListItem> {
+        let file_duration = match self.state.selected() {
+            Some(v) => {
+                let file_duration = lofty::read_from_path(&Path::new(format!("{}/{}", self.current_dir,self.mp3_files[self.state.selected().unwrap()].name).as_str())).unwrap().properties().duration();
+                file_duration
+            }, 
+            None => {Duration::from_secs(0)}
+        };
         self.mp3_files.iter()
         .map(|si| {
             // Check if local volume is not edited
@@ -503,7 +517,12 @@ impl SoundList {
                         if let true = si.selected {
                             Span::styled("Press F to edit Fades", Style::default())
                         } else {Span::styled("", Style::default().fg(Color::White))}
-                        ]).right_aligned().fg(Color::Yellow)
+                        ]).right_aligned().fg(Color::Yellow),
+                    if let true = si.selected {
+                        Line::from(
+                            Span::styled(format!("{} secondes",file_duration.as_secs().to_string()), Style::default())
+                        )
+                    } else {Line::from("")}
                 ])
                 } else {
                     Text::from(vec![
