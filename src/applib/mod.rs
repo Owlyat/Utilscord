@@ -1,4 +1,5 @@
 pub mod tab_mod;
+use std::env;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::fs;
 use std::time::{Duration, Instant};
@@ -6,7 +7,6 @@ use lofty::file::AudioFile;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use tab_mod::{Content, Input, SoundList, Tab, TabName};
 use std::thread;
-use lofty::read_from_path;
 pub struct AppTab {
     pub tab : Vec<Tab>,
     pub selected_tab: usize,
@@ -16,15 +16,15 @@ pub struct AppTab {
 
 impl AppTab {
     fn new() -> Self {
-        
-        AppTab {
+        let args: Vec<_> = env::args().collect();
+        let mut app = AppTab {
             tab: vec![
                 Tab {
                     tab_name: TabName::MainMenu, 
                     index: 0, 
                     content: Content::MainMenu(
-                        SoundList::From(String::new()),
-                        Input {FieldTitle: "Path".to_owned(), selected : true,..Default::default()}
+                        SoundList::From(if args.len() > 1 {args[1].clone()} else {String::new()}),
+                        Input {FieldTitle: "Path".to_owned(), selected : true,input : if args.len() > 1 {args[1].clone()} else {String::new()} ,..Default::default()}
                     )},
                 Tab {
                     tab_name: TabName::Messages, 
@@ -36,7 +36,9 @@ impl AppTab {
             selected_tab : 0,
             sender : None,
             receiver : None,
-        }
+        };
+        if args.len() > 1 {app.tab[0].next();}
+        app
     }
 
     pub fn next(&mut self) {

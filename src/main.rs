@@ -1,11 +1,9 @@
 use std::time::Duration;
-use applib::tab_mod::Content;
-use applib::AppTab;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 mod applib;
 
-struct App {
+struct Utilschord {
     should_quit: bool,
     quit_key_code: Vec<KeyCode>,
     move_key_code: Vec<KeyCode>,
@@ -13,7 +11,7 @@ struct App {
     tabs: applib::AppTab,
 }
 
-impl Default for App {
+impl Default for Utilschord {
     fn default() -> Self {
         Self {
             should_quit: false,
@@ -25,10 +23,10 @@ impl Default for App {
     }
 }
 
-impl App {
+impl Utilschord {
     pub fn run(&mut self) {
         let mut terminal = ratatui::init();
-
+        
         while !self.should_quit {
 
             terminal.draw(|frame : &mut Frame| {
@@ -106,5 +104,5 @@ impl App {
 
 
 fn main() {
-    let _ = App::default().run();
+    let _ = Utilschord::default().run();
 }

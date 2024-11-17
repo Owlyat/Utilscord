@@ -1,7 +1,6 @@
 use block::Title;
 use clipboard::windows_clipboard::WindowsClipboardContext;
 use clipboard::ClipboardProvider;
-use lofty::error::LoftyError;
 use lofty::file::AudioFile;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -15,7 +14,7 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 use clipboard;
-use lofty::read_from_path;
+
 
 #[derive(Clone, Debug)]
 pub enum TabName {
