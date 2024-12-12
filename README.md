@@ -27,7 +27,7 @@ Quit | Ctrl + C / Ctrl + Q
 /Utilscord/Stop | Stop the current playing song
 /Utilscord/LocalVolume/Selected (Float) | Will set the local volume of the selected song
 /Utilscord/LocalVolume/0 (Float) | Will set the local volume of the song specified number (here 0)
-/Utilscord/Volume | Will set the general volume of the app
+/Utilscord/Volume (float) | Will set the general volume of the app
 
 ### To do (in priority from top to bottom) :
 - [x] A General volume + A dedicated assignable volume for each sound
