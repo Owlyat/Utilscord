@@ -366,35 +366,35 @@ pub struct SoundList {
 pub struct SoundItem {
     pub name: String,
     pub selected: bool,
-    pub local_volume: f32, // Local Volume
-    selected_fade_tab: usize,
+    pub local_volume: f32,
+    /// Fade In | Fade Out | Trim In
+    edit_tab_selected: usize,
     pub fade_tab_content: Vec<Input>,
+    pub trim_in: Duration,
+    pub max_duration: Duration,
 }
 
 impl SoundItem {
     pub fn next_fade_tab(&mut self) {
-        if self.selected_fade_tab != 1 {
-            self.selected_fade_tab += 1;
-        }
+        self.edit_tab_selected = (self.edit_tab_selected + 1) % self.fade_tab_content.len();
         for i in &mut self.fade_tab_content {
             i.is_selected = false
         }
-        self.fade_tab_content[self.selected_fade_tab].is_selected = true;
+        self.fade_tab_content[self.edit_tab_selected].is_selected = true;
     }
 
     pub fn previous_fade_tab(&mut self) {
-        if self.selected_fade_tab != 0 {
-            self.selected_fade_tab -= 1
-        };
+        self.edit_tab_selected = (self.edit_tab_selected + self.fade_tab_content.len() - 1)
+            % self.fade_tab_content.len();
         for i in &mut self.fade_tab_content {
             i.is_selected = false
         }
-        self.fade_tab_content[self.selected_fade_tab].is_selected = true;
+        self.fade_tab_content[self.edit_tab_selected].is_selected = true;
     }
 
     pub fn edit(&mut self) {
-        self.fade_tab_content[self.selected_fade_tab].input_mode =
-            !self.fade_tab_content[self.selected_fade_tab].input_mode
+        self.fade_tab_content[self.edit_tab_selected].input_mode =
+            !self.fade_tab_content[self.edit_tab_selected].input_mode
     }
 }
 
@@ -458,6 +458,7 @@ impl SoundList {
         let local_volume = self.sound_files[index].local_volume;
         let general_volume = self.volume;
         self.currently_playing = self.sound_files[index].name.clone();
+        let trim_in_duration = self.sound_files[index].trim_in;
         let arc_self = Arc::new(Mutex::new(self.clone()));
         thread::spawn(move || {
             let soundlist = arc_self.lock().unwrap();
@@ -472,6 +473,7 @@ impl SoundList {
             );
             let source = Decoder::new(file).unwrap();
             sink.append(source);
+            sink.try_seek(trim_in_duration).unwrap();
             let mut gv: f32 = general_volume;
             let mut lv: f32 = local_volume;
             loop {
@@ -532,23 +534,6 @@ impl SoundList {
     }
 
     fn get_list_items(&self) -> Vec<ListItem> {
-        let file_duration = match self.state.selected() {
-            Some(_v) => {
-                let file_duration = lofty::read_from_path(&Path::new(
-                    format!(
-                        "{}/{}",
-                        self.current_dir,
-                        self.sound_files[self.state.selected().unwrap()].name
-                    )
-                    .as_str(),
-                ))
-                .unwrap()
-                .properties()
-                .duration();
-                file_duration
-            }
-            None => Duration::from_secs(0),
-        };
         self.sound_files
             .iter()
             .map(|si| {
@@ -577,7 +562,7 @@ impl SoundList {
                             .fg(Color::Yellow),
                             if let true = si.selected {
                                 Line::from(Span::styled(
-                                    format!("{} secondes", file_duration.as_secs().to_string()),
+                                    format!("{} secondes", si.max_duration.as_secs().to_string()),
                                     Style::default(),
                                 ))
                             } else {
@@ -610,7 +595,7 @@ impl SoundList {
                             .right_aligned(),
                             Line::from(vec![if let true = si.selected {
                                 Span::styled(
-                                    format!("{} secondes", file_duration.as_secs().to_string()),
+                                    format!("{} secondes", si.max_duration.as_secs().to_string()),
                                     Style::default(),
                                 )
                             } else {
@@ -682,7 +667,7 @@ impl SoundList {
                                     name: file_name.to_string_lossy().into_owned(),
                                     selected: false,
                                     local_volume: 0.0,
-                                    selected_fade_tab: 0,
+                                    edit_tab_selected: 0,
                                     fade_tab_content: vec![
                                         Input {
                                             input_field_title: "Fade In Time".to_owned(),
@@ -693,7 +678,18 @@ impl SoundList {
                                             input_field_title: "Fade Out Time".to_owned(),
                                             ..Default::default()
                                         },
+                                        Input {
+                                            input_field_title: "Trim In".to_owned(),
+                                            ..Default::default()
+                                        },
                                     ],
+                                    trim_in: Duration::from_secs(0),
+                                    max_duration: lofty::read_from_path(&Path::new(
+                                        format!("{}", entry.path().to_string_lossy()).as_str(),
+                                    ))
+                                    .unwrap()
+                                    .properties()
+                                    .duration(),
                                 });
                             }
                         }

@@ -869,10 +869,48 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
         }
     }
 
+    if si.fade_tab_content[2].input_mode {
+        // Editing Trim In
+        match key {
+            KeyCode::Backspace => {
+                if keymod == KeyModifiers::CONTROL {
+                    si.fade_tab_content[2].input.clear();
+                    si.fade_tab_content[2].reset_cursor();
+                } else {
+                    si.fade_tab_content[2].delete_char();
+                }
+            }
+            KeyCode::Char(char_to_insert) => match char_to_insert {
+                '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' => {
+                    si.fade_tab_content[2].enter_char(char_to_insert);
+
+                    match si.fade_tab_content[2].input.parse::<u64>() {
+                        Ok(duration) => {
+                            if si.max_duration.as_secs() > duration {
+                                si.trim_in = Duration::from_secs(duration);
+                            } else {
+                                si.fade_tab_content[2].input =
+                                    si.max_duration.as_secs().to_string();
+                                si.trim_in = Duration::from_secs(0);
+                            }
+                        }
+                        Err(_) => {
+                            si.fade_tab_content[2].enter_char(char_to_insert);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
     // Navigating between Fade Inputs
     match key {
         KeyCode::Backspace => {
-            soundlist.toggle_fade_edition();
+            if !si.fade_tab_content[2].input_mode {
+                soundlist.toggle_fade_edition();
+            }
         }
         KeyCode::Up => {
             for i in si.fade_tab_content.clone() {

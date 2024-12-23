@@ -104,7 +104,7 @@ impl StatefulWidget for Tab {
                             tab_footer,
                             buf,
                             &mut sound_list.sound_files[sound_list.state.selected().unwrap()]
-                                .selected_fade_tab,
+                                .edit_tab_selected,
                         );
                 } else {
                     sound_list
@@ -188,11 +188,11 @@ impl StatefulWidget for SoundItem {
     fn render(self, area: Rect, buf: &mut Buffer, _state: &mut usize) {
         let popup = Block::bordered()
             .title(
-                Title::from("Fades".yellow())
+                Title::from("Fades".white())
                     .alignment(Alignment::Center)
                     .position(block::Position::Top),
             )
-            .fg(Color::Yellow)
+            .fg(Color::White)
             .title(
                 Title::from("| Press <F> or <ESC> To Go Back |")
                     .alignment(Alignment::Center)
@@ -200,17 +200,24 @@ impl StatefulWidget for SoundItem {
             );
         let content = popup.inner(area);
         popup.render(area, buf);
-        let layout = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
-        let [top, bottom] = layout.areas(content);
+        let layout = Layout::vertical([
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(50),
+        ]);
+        let [fade_in_area, fade_out_area, trim_in_area] = layout.areas(content);
 
         let mut copy = self.fade_tab_content.clone();
 
         copy[0]
             .clone()
-            .render(top, buf, &mut copy[0].input_field_title);
+            .render(fade_in_area, buf, &mut copy[0].input_field_title);
         copy[1]
             .clone()
-            .render(bottom, buf, &mut copy[1].input_field_title);
+            .render(fade_out_area, buf, &mut copy[1].input_field_title);
+        copy[2]
+            .clone()
+            .render(trim_in_area, buf, &mut copy[2].input_field_title);
     }
 }
 

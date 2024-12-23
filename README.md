@@ -17,7 +17,7 @@ Quit | Ctrl + C / Ctrl + Q
 |pause| Space |
 |stop| Backspace |
 |Local volume| Shift + Up/Down Arrow |
-|Edit Fades| F |
+|Edit Song Properties| F |
 |Go to Song| 0 1 2 3 4 5 6 7 8 9 (based on number) |
 |Play song| CTRL + 1 2 3 4 5 6 7 8 9 (based on number) |
 |General volume| +/- |
@@ -38,7 +38,7 @@ Quit | Ctrl + C / Ctrl + Q
 - [x] A General volume + A dedicated assignable volume for each sound
 - [x] Adjustable Fade In and Fade Out for each sound
 - [x] OSC Controls
-- [ ] Adjustable song trim for each sound
+- [x] Adjustable song trim for each sound
 - [ ] Implement [dmx](https://docs.rs/dmx/latest/dmx/) to do basic lighting
 - [ ] Implement [dante-control-rs](https://docs.rs/dante-control-rs/0.8.2/dante_control_rs/) to manage dante devices
 
