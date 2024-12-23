@@ -1,4 +1,5 @@
-use block::Title;
+#[path = "render.rs"]
+mod render;
 use clipboard;
 use clipboard::windows_clipboard::WindowsClipboardContext;
 use clipboard::ClipboardProvider;
@@ -34,7 +35,8 @@ pub struct Input {
     pub input_mode: bool,
     // Input Title
     pub input_field_title: String,
-    pub selected: bool,
+    // Is selected
+    pub is_selected: bool,
     pub edited: bool,
 }
 
@@ -64,7 +66,7 @@ impl Tab {
     pub fn next_content_element(&mut self) {
         match &mut self.content {
             Content::MainMenu(sound_list, input) => {
-                input.selected = !input.selected;
+                input.is_selected = !input.is_selected;
                 sound_list.selected = !sound_list.selected;
             }
             Content::OSC(listening_ip_input, remote_ip_input) => {
@@ -80,7 +82,7 @@ impl Tab {
     pub fn previous_content_element(&mut self) {
         match &mut self.content {
             Content::MainMenu(sound_list, input) => {
-                input.selected = !input.selected;
+                input.is_selected = !input.is_selected;
                 sound_list.selected = !sound_list.selected;
             }
             Content::OSC(listening_ip_input, remote_ip_input) => {
@@ -90,6 +92,21 @@ impl Tab {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Content {
+    MainMenu(SoundList, Input),
+    OSC(IPInput, IPInput),
+}
+
+impl Content {
+    pub fn to_string(&self) -> String {
+        match self {
+            Content::MainMenu(_sound_list, _input) => "Main Menu".to_owned(),
+            Content::OSC(_listening_ip_input, _remote_ip_input) => "OSC".to_owned(),
         }
     }
 }
@@ -112,7 +129,6 @@ impl Input {
     }
 
     /// Returns the byte index based on the character position.
-    ///
     /// Since each character in a string can be contain multiple bytes, it's necessary to calculate
     /// the byte index based on the index of the character.
     pub fn byte_index(&self) -> usize {
@@ -177,7 +193,7 @@ impl Clone for Input {
             character_index: self.character_index.clone(),
             input_mode: self.input_mode.clone(),
             input_field_title: self.input_field_title.clone(),
-            selected: self.selected.clone(),
+            is_selected: self.is_selected.clone(),
             edited: self.edited.clone(),
         }
     }
@@ -190,37 +206,9 @@ impl Default for Input {
             character_index: 0,
             input_mode: false,
             input_field_title: String::new(),
-            selected: false,
+            is_selected: false,
             edited: false,
         }
-    }
-}
-
-impl StatefulWidget for Input {
-    type State = String;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        Paragraph::new(match self.input_mode {
-            false => Line::from(self.input).fg(Color::White),
-            true => Line::from(self.input).fg(Color::Yellow),
-        })
-        .style(match self.input_mode {
-            false => Style::default(),
-            true => Style::default().yellow(),
-        })
-        .block(
-            Block::bordered()
-                .title(Line::from(match self.input_mode {
-                    false => Line::from(state.to_string()).centered().fg(Color::White),
-                    true => Line::from(format!("{} - Edit", state.to_string()))
-                        .centered()
-                        .fg(Color::Yellow),
-                }))
-                .fg(match self.selected {
-                    true => Color::Yellow,
-                    false => Color::White,
-                }),
-        )
-        .render(area, buf);
     }
 }
 
@@ -349,45 +337,6 @@ impl IPInput {
     }
 }
 
-impl StatefulWidget for IPInput {
-    type State = String;
-    //IPINPUT RENDER
-    fn render(self, area: Rect, buf: &mut Buffer, _state: &mut Self::State) {
-        Paragraph::new(self.input)
-            .style(if self.edit_mode || self.focus {
-                Style::default().yellow()
-            } else {
-                Style::default().white()
-            })
-            .block(
-                Block::bordered()
-                    .title(if self.edit_mode {
-                        format!("{} - Edit", self.title)
-                    } else {
-                        format!("{}", self.title)
-                    })
-                    .title_alignment(Alignment::Center)
-                    .title_position(block::Position::Top),
-            )
-            .render(area, buf);
-    }
-}
-
-#[derive(Debug)]
-pub enum Content {
-    MainMenu(SoundList, Input),
-    OSC(IPInput, IPInput),
-}
-
-impl Content {
-    pub fn to_string(&self) -> String {
-        match self {
-            Content::MainMenu(_sound_list, _input) => "Main Menu".to_owned(),
-            Content::OSC(_listening_ip_input, _remote_ip_input) => "OSC".to_owned(),
-        }
-    }
-}
-
 impl Clone for Content {
     fn clone(&self) -> Content {
         match self {
@@ -401,80 +350,10 @@ impl Clone for Content {
     }
 }
 
-impl StatefulWidget for Tab {
-    type State = Content;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let main_tab_border = Block::bordered()
-            .title(
-                Title::from(state.to_string())
-                    .position(block::Position::Top)
-                    .alignment(Alignment::Center),
-            )
-            .fg(Color::White)
-            .title(
-                Title::from("| Press <Shift> + ◄ ► to change Tab |")
-                    .position(block::Position::Bottom)
-                    .alignment(Alignment::Left),
-            )
-            .fg(Color::White)
-            .title(
-                Title::from("| Press <Shift> + ▲ ▼ To navigate |")
-                    .position(block::Position::Bottom)
-                    .alignment(Alignment::Right),
-            )
-            .style(Style::default())
-            .white()
-            .bg(Color::Black);
-        let tab_content = main_tab_border.inner(area);
-        main_tab_border.render(area, buf);
-
-        match state {
-            Content::MainMenu(sound_list, input) => {
-                let vert = Layout::vertical([Constraint::Length(3), Constraint::Fill(3)]);
-
-                let [tab_content, tab_footer] = vert.areas(tab_content);
-
-                input
-                    .clone()
-                    .render(tab_content, buf, &mut input.input_field_title);
-
-                if sound_list.editingfades {
-                    sound_list.clone().mp3_files[sound_list.state.selected().unwrap()]
-                        .clone()
-                        .render(
-                            tab_footer,
-                            buf,
-                            &mut sound_list.mp3_files[sound_list.state.selected().unwrap()]
-                                .selected_fade_tab,
-                        );
-                } else {
-                    sound_list
-                        .clone()
-                        .render(tab_footer, buf, &mut sound_list.state);
-                }
-            }
-            Content::OSC(listening_ip_input, remote_ip_input) => {
-                let vert = Layout::vertical([Constraint::Fill(1), Constraint::Fill(3)]);
-                let [tab_content, _tab_footer] = vert.areas(tab_content);
-                let ip_input_areas =
-                    Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
-                let [listening_input_area, remote_input_area] = ip_input_areas.areas(tab_content);
-                listening_ip_input.clone().render(
-                    listening_input_area,
-                    buf,
-                    &mut listening_ip_input.input,
-                );
-                remote_ip_input
-                    .clone()
-                    .render(remote_input_area, buf, &mut remote_ip_input.input)
-            }
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct SoundList {
-    pub mp3_files: Vec<SoundItem>, // Store the MP3 file names
+    // List of Sound Files
+    pub sound_files: Vec<SoundItem>,
     pub state: ListState,
     pub current_dir: String, // Store the current directory path
     pub selected: bool,
@@ -486,7 +365,7 @@ pub struct SoundList {
 #[derive(Clone, Debug)]
 pub struct SoundItem {
     pub name: String,
-    selected: bool,
+    pub selected: bool,
     pub local_volume: f32, // Local Volume
     selected_fade_tab: usize,
     pub fade_tab_content: Vec<Input>,
@@ -498,9 +377,9 @@ impl SoundItem {
             self.selected_fade_tab += 1;
         }
         for i in &mut self.fade_tab_content {
-            i.selected = false
+            i.is_selected = false
         }
-        self.fade_tab_content[self.selected_fade_tab].selected = true;
+        self.fade_tab_content[self.selected_fade_tab].is_selected = true;
     }
 
     pub fn previous_fade_tab(&mut self) {
@@ -508,45 +387,14 @@ impl SoundItem {
             self.selected_fade_tab -= 1
         };
         for i in &mut self.fade_tab_content {
-            i.selected = false
+            i.is_selected = false
         }
-        self.fade_tab_content[self.selected_fade_tab].selected = true;
+        self.fade_tab_content[self.selected_fade_tab].is_selected = true;
     }
 
     pub fn edit(&mut self) {
         self.fade_tab_content[self.selected_fade_tab].input_mode =
             !self.fade_tab_content[self.selected_fade_tab].input_mode
-    }
-}
-
-impl StatefulWidget for SoundItem {
-    type State = usize;
-    fn render(self, area: Rect, buf: &mut Buffer, _state: &mut usize) {
-        let popup = Block::bordered()
-            .title(
-                Title::from("Fades".yellow())
-                    .alignment(Alignment::Center)
-                    .position(block::Position::Top),
-            )
-            .fg(Color::Yellow)
-            .title(
-                Title::from("| Press <F> or <ESC> To Go Back |")
-                    .alignment(Alignment::Center)
-                    .position(block::Position::Bottom),
-            );
-        let content = popup.inner(area);
-        popup.render(area, buf);
-        let layout = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
-        let [top, bottom] = layout.areas(content);
-
-        let mut copy = self.fade_tab_content.clone();
-
-        copy[0]
-            .clone()
-            .render(top, buf, &mut copy[0].input_field_title);
-        copy[1]
-            .clone()
-            .render(bottom, buf, &mut copy[1].input_field_title);
     }
 }
 
@@ -559,9 +407,9 @@ pub enum MusicState {
 
 impl SoundList {
     pub fn from_dir(dir: String) -> Self {
-        let mp3_files = SoundList::get_mp3_files_from_dir(dir.clone());
+        let sound_files = SoundList::get_sound_files_from_dir(dir.clone());
         Self {
-            mp3_files,
+            sound_files,
             state: ListState::default(),
             current_dir: dir.clone(),
             selected: false,
@@ -572,34 +420,34 @@ impl SoundList {
     }
 
     pub fn toggle_fade_edition(&mut self) {
-        if self.mp3_files[self.state.selected().unwrap()].fade_tab_content[0].input_mode {
+        if self.sound_files[self.state.selected().unwrap()].fade_tab_content[0].input_mode {
             return;
         }
-        if self.mp3_files[self.state.selected().unwrap()].fade_tab_content[1].input_mode {
+        if self.sound_files[self.state.selected().unwrap()].fade_tab_content[1].input_mode {
             return;
         }
         self.editingfades = !self.editingfades
     }
 
     pub fn get_local_volume_of_selected_item(&self) -> f32 {
-        self.mp3_files[self.state.selected().unwrap()].local_volume
+        self.sound_files[self.state.selected().unwrap()].local_volume
     }
 
     pub fn get_local_volume_of_item_index(&self, index: usize) -> f32 {
-        self.mp3_files[index].local_volume
+        self.sound_files[index].local_volume
     }
 
     pub fn modify_local_volume(&mut self, index: usize, new_volume: f32) -> Result<(), String> {
-        if index <= self.mp3_files.len() - 1 {
-            self.mp3_files[index].local_volume = new_volume.clamp(-2.0, 2.0);
+        if index <= self.sound_files.len() - 1 {
+            self.sound_files[index].local_volume = new_volume.clamp(-2.0, 2.0);
             return Ok(());
         } else {
             return Err(format!(
                 "Index : [{}] is out of bound \n    => Lenght : {}\n    {} <= {}",
                 index,
-                self.mp3_files.len() - 1,
+                self.sound_files.len() - 1,
                 index,
-                self.mp3_files.len() - 1
+                self.sound_files.len() - 1
             ));
         };
     }
@@ -607,9 +455,9 @@ impl SoundList {
     pub fn play(&mut self, receiver: Receiver<MusicState>, sender: Sender<f32>, index: usize) {
         // local index
         // Offset Volume on each song
-        let local_volume = self.mp3_files[index].local_volume;
+        let local_volume = self.sound_files[index].local_volume;
         let general_volume = self.volume;
-        self.currently_playing = self.mp3_files[index].name.clone();
+        self.currently_playing = self.sound_files[index].name.clone();
         let arc_self = Arc::new(Mutex::new(self.clone()));
         thread::spawn(move || {
             let soundlist = arc_self.lock().unwrap();
@@ -618,7 +466,7 @@ impl SoundList {
             let file = BufReader::new(
                 File::open(format!(
                     "{}/{}",
-                    soundlist.current_dir, soundlist.mp3_files[index].name
+                    soundlist.current_dir, soundlist.sound_files[index].name
                 ))
                 .unwrap(),
             );
@@ -690,7 +538,7 @@ impl SoundList {
                     format!(
                         "{}/{}",
                         self.current_dir,
-                        self.mp3_files[self.state.selected().unwrap()].name
+                        self.sound_files[self.state.selected().unwrap()].name
                     )
                     .as_str(),
                 ))
@@ -701,7 +549,7 @@ impl SoundList {
             }
             None => Duration::from_secs(0),
         };
-        self.mp3_files
+        self.sound_files
             .iter()
             .map(|si| {
                 // Check if local volume is not edited
@@ -790,7 +638,7 @@ impl SoundList {
     pub fn previous_song(&mut self) {
         self.toggle_status();
         if self.state.selected().unwrap() == 0 {
-            self.state.select(Some(self.mp3_files.len() - 1));
+            self.state.select(Some(self.sound_files.len() - 1));
             self.toggle_status();
             return;
         }
@@ -798,10 +646,16 @@ impl SoundList {
         self.toggle_status();
     }
 
+    pub fn select_song(&mut self, index: usize) {
+        self.toggle_status();
+        self.state.select(Some(index));
+        self.toggle_status();
+    }
+
     pub fn toggle_status(&mut self) {
         if let Some(i) = self.state.selected() {
-            if self.mp3_files.len() - 1 >= i {
-                self.mp3_files[i].selected = !self.mp3_files[i].selected
+            if self.sound_files.len() - 1 >= i {
+                self.sound_files[i].selected = !self.sound_files[i].selected
             } else {
                 self.state.select_first();
                 self.toggle_status();
@@ -814,17 +668,17 @@ impl SoundList {
         self.toggle_status();
     }
 
-    // Function to get MP3 files from a folder
-    fn get_mp3_files_from_dir<P: AsRef<Path>>(folder_path: P) -> Vec<SoundItem> {
-        let mut mp3_files = Vec::new();
+    // Function to get sound files from a folder
+    fn get_sound_files_from_dir<P: AsRef<Path>>(folder_path: P) -> Vec<SoundItem> {
+        let mut sound_files = Vec::new();
         if let Ok(entries) = fs::read_dir(folder_path) {
             for entry in entries {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if let Some(extension) = path.extension() {
-                        if extension == "mp3" {
+                        if extension == "mp3" || extension == "wav" {
                             if let Some(file_name) = path.file_name() {
-                                mp3_files.push(SoundItem {
+                                sound_files.push(SoundItem {
                                     name: file_name.to_string_lossy().into_owned(),
                                     selected: false,
                                     local_volume: 0.0,
@@ -832,7 +686,7 @@ impl SoundList {
                                     fade_tab_content: vec![
                                         Input {
                                             input_field_title: "Fade In Time".to_owned(),
-                                            selected: true,
+                                            is_selected: true,
                                             ..Default::default()
                                         },
                                         Input {
@@ -847,67 +701,10 @@ impl SoundList {
                 }
             }
         }
-        mp3_files
+        sound_files
     }
 
     pub fn update(&mut self) {
-        self.mp3_files = SoundList::get_mp3_files_from_dir(self.current_dir.clone())
-    }
-}
-
-impl StatefulWidget for SoundList {
-    type State = ListState;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        //println!("{:?}", state.selected());
-        let mp3_list = List::new(self.get_list_items())
-        .block(
-            Block::bordered()
-            .style(Style::default())
-            .fg(match self.selected {
-                true => {Color::Yellow},
-                false => {Color::White},
-            })
-            .title(
-                Line::from(match state.selected() {
-                    Some(_) => {"MP3 Files - Selected"},
-                    None => {"MP3 Files"}
-                })
-                .fg(match self.selected {
-                    true => {Color::Yellow},
-                    false => {Color::White},
-                }))
-                .border_style(Style::default()).fg(match self.selected {
-                    true => {Color::Yellow},
-                    false => {Color::White}
-            })
-            .title(
-                Title::from(match state.selected() {
-                    Some(_) => {"| <Enter> Play | <Space> Pause | <Backspace> Remove | <Shift> + ▲ ▼ Local Volume | +/- General Volume |"},
-                    None => {""}
-                })
-                .alignment(Alignment::Center)
-                .position(block::Position::Bottom)
-            )
-            .title(
-                Title::from(
-                    match state.selected() {
-                        Some(_) => {format!("Playing : {}",self.currently_playing.clone())}
-                        None => {"-".to_string()}
-                    })
-                .alignment(Alignment::Right)
-                .position(block::Position::Top)
-            )
-            .title(
-                Title::from(match state.selected() {
-                    Some(_) => {format!("|General Volume : {:.2}|", self.volume)}
-                    None => {"".to_string()}
-                })
-                .alignment(Alignment::Right)
-                .position(block::Position::Bottom)
-            )
-            )
-            .highlight_style(Style::default().bg(Color::White).fg(Color::Black))
-            .highlight_spacing(HighlightSpacing::Always);
-        StatefulWidget::render(mp3_list, area, buf, &mut self.state.clone());
+        self.sound_files = SoundList::get_sound_files_from_dir(self.current_dir.clone())
     }
 }

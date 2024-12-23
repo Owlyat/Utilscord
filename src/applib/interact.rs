@@ -1,3 +1,4 @@
+#[path = "components.rs"]
 pub mod tab_mod;
 use core::panic;
 use lofty::file::AudioFile;
@@ -37,7 +38,7 @@ impl TabManager {
                         }),
                         Input {
                             input_field_title: "Path".to_owned(),
-                            selected: true,
+                            is_selected: true,
                             input: if args.len() > 1 {
                                 args[1].clone()
                             } else {
@@ -82,14 +83,13 @@ impl TabManager {
             if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
                 for arg in osc_message.args.clone() {
                     match arg.float() {
-                        Some(v) => {
-                            //Problème
+                        Some(new_volume) => {
                             let index = if osc_path[3] == "Selected" {
                                 if self.selected_tab != 0 {
                                     self.selected_tab = 0;
                                 }
-                                if input.selected {
-                                    input.selected = false;
+                                if input.is_selected {
+                                    input.is_selected = false;
                                 }
                                 if !soundlist.selected {
                                     soundlist.selected = true;
@@ -105,7 +105,7 @@ impl TabManager {
                             } else {
                                 match osc_path[3].parse::<usize>() {
                                     Ok(number) => {
-                                        if soundlist.mp3_files.len() <= number {
+                                        if soundlist.sound_files.len() <= number {
                                             0
                                         } else {
                                             number
@@ -115,11 +115,11 @@ impl TabManager {
                                 }
                             };
 
-                            match soundlist.modify_local_volume(index, v) {
+                            match soundlist.modify_local_volume(index, new_volume) {
                                 Ok(_) => {}
                                 Err(_) => {}
                             };
-                            if soundlist.currently_playing == soundlist.mp3_files[index].name {
+                            if soundlist.currently_playing == soundlist.sound_files[index].name {
                                 if let Some(sender) = &mut self.sender {
                                     // Send local volume
                                     match sender.send(tab_mod::MusicState::LocalVolumeChanged(
@@ -170,8 +170,8 @@ impl TabManager {
                     if self.selected_tab != 0 {
                         self.selected_tab = 0;
                     }
-                    if input.selected {
-                        input.selected = false;
+                    if input.is_selected {
+                        input.is_selected = false;
                     }
                     if !soundlist.selected {
                         soundlist.selected = true;
@@ -191,8 +191,8 @@ impl TabManager {
                     if self.selected_tab != 0 {
                         self.selected_tab = 0;
                     }
-                    if input.selected {
-                        input.selected = false;
+                    if input.is_selected {
+                        input.is_selected = false;
                     }
                     if !soundlist.selected {
                         soundlist.selected = true;
@@ -211,7 +211,7 @@ impl TabManager {
                 } else {
                     match osc_path[3].parse::<usize>() {
                         Ok(number) => {
-                            if soundlist.mp3_files.len() <= number {
+                            if soundlist.sound_files.len() <= number {
                                 0
                             } else {
                                 number
@@ -220,7 +220,7 @@ impl TabManager {
                         Err(_e) => 0,
                     }
                 };
-                if soundlist.mp3_files.len() == 0 {
+                if soundlist.sound_files.len() == 0 {
                     return;
                 }
                 if let Some(sender) = &mut self.sender {
@@ -235,12 +235,12 @@ impl TabManager {
                 let volume_changer_channel_2 = mts.clone();
                 self.sender = Some(mts);
                 self.receiver = Some(mtr);
-                let fadein = soundlist.mp3_files[index] //A CHANGER
+                let fadein = soundlist.sound_files[index] //A CHANGER
                     .fade_tab_content[0]
                     .input
                     .as_mut_str();
                 let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
-                let fadeout = soundlist.mp3_files[index] //A CHANGER
+                let fadeout = soundlist.sound_files[index] //A CHANGER
                     .fade_tab_content[1]
                     .input
                     .as_mut_str();
@@ -251,7 +251,7 @@ impl TabManager {
                     format!(
                         "{}/{}",
                         soundlist.current_dir,
-                        soundlist.mp3_files[index] //A CHANGER
+                        soundlist.sound_files[index] //A CHANGER
                             .name
                     )
                     .as_mut_str(),
@@ -330,7 +330,7 @@ impl TabManager {
         match &mut self.tabs[self.selected_tab].content {
             Content::MainMenu(soundlist, inputfield) => {
                 // Selected inputfield
-                if inputfield.selected {
+                if inputfield.is_selected {
                     input_field_logic(inputfield, key, keymod, soundlist);
                 }
                 // Selected Soundlist no fade edit
@@ -351,8 +351,9 @@ impl TabManager {
                                     }
                                     // Check if the playing music is the file selected on the list
                                     if soundlist.currently_playing
-                                        == soundlist.mp3_files[soundlist.state.selected().unwrap()]
-                                            .name
+                                        == soundlist.sound_files
+                                            [soundlist.state.selected().unwrap()]
+                                        .name
                                     {
                                         if let Some(sender) = &mut self.sender {
                                             // Send local volume
@@ -384,8 +385,9 @@ impl TabManager {
                                     }
                                     // Check if the playing music is the file selected on the list
                                     if soundlist.currently_playing
-                                        == soundlist.mp3_files[soundlist.state.selected().unwrap()]
-                                            .name
+                                        == soundlist.sound_files
+                                            [soundlist.state.selected().unwrap()]
+                                        .name
                                     {
                                         if let Some(sender) = &mut self.sender {
                                             // Send local volume
@@ -416,13 +418,13 @@ impl TabManager {
                                 let volume_changer_channel_2 = mts.clone();
                                 self.sender = Some(mts);
                                 self.receiver = Some(mtr);
-                                let fadein = soundlist.mp3_files
+                                let fadein = soundlist.sound_files
                                     [soundlist.state.selected().unwrap()]
                                 .fade_tab_content[0]
                                     .input
                                     .as_mut_str();
                                 let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
-                                let fadeout = soundlist.mp3_files
+                                let fadeout = soundlist.sound_files
                                     [soundlist.state.selected().unwrap()]
                                 .fade_tab_content[1]
                                     .input
@@ -434,7 +436,7 @@ impl TabManager {
                                     format!(
                                         "{}/{}",
                                         soundlist.current_dir,
-                                        soundlist.mp3_files[soundlist.state.selected().unwrap()]
+                                        soundlist.sound_files[soundlist.state.selected().unwrap()]
                                             .name
                                     )
                                     .as_mut_str(),
@@ -560,6 +562,132 @@ impl TabManager {
 
                             KeyCode::Char('f') => {
                                 soundlist.toggle_fade_edition();
+                            }
+
+                            KeyCode::Char(c) => {
+                                if matches!(
+                                    c,
+                                    '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+                                ) {
+                                    let index = c.to_string().parse::<usize>().unwrap();
+                                    soundlist.select_song(index);
+                                    if keymod == KeyModifiers::CONTROL {
+                                        if let Some(sender) = &mut self.sender {
+                                            match sender.send(tab_mod::MusicState::Remove) {
+                                                _ => {}
+                                            };
+                                        }
+                                        soundlist.currently_playing = "".to_owned();
+                                        let (mts, wtr) = mpsc::channel();
+                                        let (wts, mtr) = mpsc::channel();
+                                        let volume_changer_channel = mts.clone();
+                                        let volume_changer_channel_2 = mts.clone();
+                                        self.sender = Some(mts);
+                                        self.receiver = Some(mtr);
+                                        let fadein = soundlist.sound_files
+                                            [soundlist.state.selected().unwrap()]
+                                        .fade_tab_content[0]
+                                            .input
+                                            .as_mut_str();
+                                        let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
+                                        let fadeout = soundlist.sound_files
+                                            [soundlist.state.selected().unwrap()]
+                                        .fade_tab_content[1]
+                                            .input
+                                            .as_mut_str();
+                                        let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
+                                        let fade_in_duration = Duration::from_secs(fadein as u64);
+                                        let fade_out_duration = Duration::from_secs(fadeout as u64);
+                                        let song_duration =
+                                            lofty::read_from_path(&std::path::Path::new(
+                                                format!(
+                                                    "{}/{}",
+                                                    soundlist.current_dir,
+                                                    soundlist.sound_files
+                                                        [soundlist.state.selected().unwrap()]
+                                                    .name
+                                                )
+                                                .as_mut_str(),
+                                            ))
+                                            .unwrap()
+                                            .properties()
+                                            .duration();
+                                        if fadein != 0.0 {
+                                            let end_volume = soundlist.volume;
+                                            let start_volume = soundlist.volume - soundlist.volume;
+
+                                            // Spawn a new thread for the fading process
+                                            thread::spawn(move || {
+                                                let now = Instant::now();
+
+                                                loop {
+                                                    let volume = interpolate_value(
+                                                        now.elapsed(),
+                                                        fade_in_duration,
+                                                        start_volume,
+                                                        end_volume,
+                                                    );
+
+                                                    if volume_changer_channel
+                                                        .send(tab_mod::MusicState::VolumeChanged(
+                                                            volume,
+                                                        ))
+                                                        .is_err()
+                                                    {
+                                                        break; // Exit if the receiver is disconnected
+                                                    }
+                                                    if now.elapsed() >= fade_in_duration {
+                                                        break;
+                                                    }
+                                                    // Sleep briefly to avoid high CPU usage and control the update rate
+                                                    thread::sleep(Duration::from_millis(50));
+                                                }
+                                            });
+                                        }
+                                        if fadeout != 0.0 {
+                                            let end_volume = soundlist.volume;
+                                            let start_volume = soundlist.volume - soundlist.volume;
+
+                                            thread::spawn(move || {
+                                                let fade_out_start_point =
+                                                    song_duration - fade_out_duration;
+                                                let now = Instant::now();
+                                                loop {
+                                                    if now.elapsed() >= fade_out_start_point {
+                                                        let volume = interpolate_value(
+                                                            song_duration.abs_diff(now.elapsed()),
+                                                            fade_out_duration,
+                                                            start_volume,
+                                                            end_volume,
+                                                        );
+
+                                                        if volume_changer_channel_2
+                                                            .send(
+                                                                tab_mod::MusicState::VolumeChanged(
+                                                                    volume,
+                                                                ),
+                                                            )
+                                                            .is_err()
+                                                        {
+                                                            break; // Exit if the receiver is disconnected
+                                                        }
+                                                    }
+
+                                                    if now.elapsed() >= song_duration {
+                                                        break;
+                                                    }
+                                                    thread::sleep(Duration::from_millis(50));
+                                                }
+                                            });
+                                        }
+
+                                        soundlist.play(
+                                            wtr,
+                                            wts,
+                                            soundlist.state.selected().unwrap(),
+                                        );
+                                    }
+                                }
                             }
                             _ => {}
                         }
@@ -697,7 +825,7 @@ fn input_field_logic(
 }
 
 fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
-    let si = &mut soundlist.mp3_files[soundlist.state.selected().unwrap()];
+    let si = &mut soundlist.sound_files[soundlist.state.selected().unwrap()];
 
     if si.fade_tab_content[0].input_mode {
         // Editing Fade In Input

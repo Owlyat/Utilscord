@@ -3,6 +3,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers
 use ratatui::Frame;
 use std::time::Duration;
 
+#[path = "applib/interact.rs"]
 mod applib;
 use applib::{tab_mod::Content, TabManager};
 //mod ratatui_elements;
@@ -98,8 +99,16 @@ impl Utilscord {
                                         self.tab_manager.tabs[0].next_content_element();
                                     }
                                 }
-                                KeyCode::Left => self.tab_manager.previous(),
-                                KeyCode::Right => self.tab_manager.next(),
+                                KeyCode::Left => {
+                                    if !self.tab_manager.tabs[0].is_used() {
+                                        self.tab_manager.previous()
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if !self.tab_manager.tabs[0].is_used() {
+                                        self.tab_manager.next()
+                                    }
+                                }
                                 _ => panic!("You should not be here!"),
                             },
                             Content::OSC(_listening_ip_input, _remote_ip_input) => match key.code {
