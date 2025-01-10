@@ -60,6 +60,7 @@ impl Tab {
                     false
                 }
             }
+            Content::DMX(_, _, _, _, _) => false,
         }
     }
 
@@ -76,6 +77,16 @@ impl Tab {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
+            Content::DMX(dimmer, r, v, b, _) => {
+                let mut vec = vec![dimmer, r, v, b];
+                let vecsize = vec.len();
+                let (index, _dmx_input) = match vec.iter().enumerate().find(|e| e.1.is_focused) {
+                    Some(x) => x,
+                    None => (0, &vec[0]),
+                };
+                vec[index].is_focused = false;
+                vec[(index + 1) % vecsize].is_focused = true;
+            } //
         }
     }
 
@@ -92,6 +103,16 @@ impl Tab {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
+            Content::DMX(dimmer, r, v, b, _) => {
+                let mut vec = vec![dimmer, r, v, b];
+                let vecsize = vec.len();
+                let (index, _dmx_input) = match vec.iter().enumerate().find(|e| e.1.is_focused) {
+                    Some(x) => x,
+                    None => (0, &vec[0]),
+                };
+                vec[index].is_focused = false;
+                vec[(index + vecsize - 1) % vecsize].is_focused = true;
+            }
         }
     }
 }
@@ -100,13 +121,45 @@ impl Tab {
 pub enum Content {
     MainMenu(SoundList, Input),
     OSC(IPInput, IPInput),
+    DMX(DMXInput, DMXInput, DMXInput, DMXInput, Box<u8>),
+}
+
+#[derive(Debug, Clone)]
+pub struct DMXInput {
+    pub is_focused: bool,
+    pub value: u8,
+    pub title: String,
+}
+
+impl DMXInput {
+    pub fn increment(&mut self, v: u8) {
+        if self.value != u8::MAX {
+            self.value = self.value.saturating_add(v);
+        }
+    }
+    pub fn decrement(&mut self, v: u8) {
+        if self.value != u8::MIN {
+            self.value = self.value.saturating_sub(v);
+        }
+    }
+}
+
+impl Default for DMXInput {
+    fn default() -> Self {
+        DMXInput {
+            is_focused: false,
+            value: 0,
+            title: String::new(),
+        }
+    }
 }
 
 impl Content {
-    pub fn to_string(&self) -> String {
+    pub fn to_string(&self) -> &str {
         match self {
-            Content::MainMenu(_sound_list, _input) => "Main Menu".to_owned(),
-            Content::OSC(_listening_ip_input, _remote_ip_input) => "OSC".to_owned(),
+            Content::MainMenu(_sound_list, _input) => "Sound Bank",
+            Content::OSC(_listening_ip_input, _remote_ip_input) => "OSC",
+            Content::DMX(_, _, _, _, _) => "DMX",
         }
     }
 }
@@ -345,6 +398,15 @@ impl Clone for Content {
             }
             Content::OSC(listening_ip_input, remote_ip_input) => {
                 return Content::OSC(listening_ip_input.clone(), remote_ip_input.clone())
+            }
+            Content::DMX(dimmer_input, r_input, v_input, b_input, dmx_adress) => {
+                return Content::DMX(
+                    dimmer_input.clone(),
+                    r_input.clone(),
+                    v_input.clone(),
+                    b_input.clone(),
+                    dmx_adress.clone(),
+                )
             }
         }
     }

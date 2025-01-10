@@ -1,5 +1,9 @@
 #[path = "components.rs"]
-pub mod tab_mod;
+pub mod component;
+use component::DMXInput;
+use component::IPInput;
+use component::MusicState;
+use component::{Content, Input, SoundList, Tab};
 use core::panic;
 use lofty::file::AudioFile;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
@@ -12,9 +16,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::vec;
-use tab_mod::IPInput;
-use tab_mod::MusicState;
-use tab_mod::{Content, Input, SoundList, Tab};
 
 pub struct TabManager {
     pub tabs: Vec<Tab>,
@@ -52,6 +53,27 @@ impl TabManager {
                     content: Content::OSC(
                         IPInput::new("Host IP:PORT".to_owned()),
                         IPInput::new("Host IP:PORT".to_owned()),
+                    ),
+                },
+                Tab {
+                    content: Content::DMX(
+                        DMXInput {
+                            title: "Dimmer".to_owned(),
+                            ..Default::default()
+                        },
+                        DMXInput {
+                            title: "R".to_owned(),
+                            ..Default::default()
+                        },
+                        DMXInput {
+                            title: "V".to_owned(),
+                            ..Default::default()
+                        },
+                        DMXInput {
+                            title: "B".to_owned(),
+                            ..Default::default()
+                        },
+                        Box::new(1),
                     ),
                 },
             ],
@@ -122,7 +144,7 @@ impl TabManager {
                             if soundlist.currently_playing == soundlist.sound_files[index].name {
                                 if let Some(sender) = &mut self.sender {
                                     // Send local volume
-                                    match sender.send(tab_mod::MusicState::LocalVolumeChanged(
+                                    match sender.send(component::MusicState::LocalVolumeChanged(
                                         soundlist.get_local_volume_of_item_index(index),
                                     )) {
                                         _ => {}
@@ -143,7 +165,7 @@ impl TabManager {
                             soundlist.volume = v;
                             if let Some(sender) = &mut self.sender {
                                 match sender
-                                    .send(tab_mod::MusicState::VolumeChanged(soundlist.volume))
+                                    .send(component::MusicState::VolumeChanged(soundlist.volume))
                                 {
                                     _ => {}
                                 };
@@ -158,7 +180,7 @@ impl TabManager {
             if let Content::MainMenu(soundlist, _input) = &mut self.tabs[0].content {
                 soundlist.currently_playing = "".to_owned();
                 if let Some(x) = &mut self.sender {
-                    match x.send(tab_mod::MusicState::Remove) {
+                    match x.send(component::MusicState::Remove) {
                         _ => {}
                     };
                 }
@@ -224,7 +246,7 @@ impl TabManager {
                     return;
                 }
                 if let Some(sender) = &mut self.sender {
-                    match sender.send(tab_mod::MusicState::Remove) {
+                    match sender.send(component::MusicState::Remove) {
                         _ => {}
                     };
                 }
@@ -276,7 +298,7 @@ impl TabManager {
                             );
 
                             if volume_changer_channel
-                                .send(tab_mod::MusicState::VolumeChanged(volume))
+                                .send(component::MusicState::VolumeChanged(volume))
                                 .is_err()
                             {
                                 break; // Exit if the receiver is disconnected
@@ -306,7 +328,7 @@ impl TabManager {
                                 );
 
                                 if volume_changer_channel_2
-                                    .send(tab_mod::MusicState::VolumeChanged(volume))
+                                    .send(component::MusicState::VolumeChanged(volume))
                                     .is_err()
                                 {
                                     break; // Exit if the receiver is disconnected
@@ -335,13 +357,13 @@ impl TabManager {
                 }
                 // Selected Soundlist no fade edit
                 else if soundlist.selected && !soundlist.editingfades {
-                    if soundlist.state.selected() != None {
+                    if let Some(i) = soundlist.state.selected() {
                         match key {
                             KeyCode::Up => {
                                 if keymod == KeyModifiers::SHIFT {
                                     // Modify local volume
                                     match soundlist.modify_local_volume(
-                                        soundlist.state.selected().unwrap(),
+                                        i,
                                         soundlist.get_local_volume_of_selected_item() + 0.01,
                                     ) {
                                         Ok(_) => {}
@@ -350,15 +372,12 @@ impl TabManager {
                                         }
                                     }
                                     // Check if the playing music is the file selected on the list
-                                    if soundlist.currently_playing
-                                        == soundlist.sound_files
-                                            [soundlist.state.selected().unwrap()]
-                                        .name
+                                    if soundlist.currently_playing == soundlist.sound_files[i].name
                                     {
                                         if let Some(sender) = &mut self.sender {
                                             // Send local volume
                                             match sender.send(
-                                                tab_mod::MusicState::LocalVolumeChanged(
+                                                component::MusicState::LocalVolumeChanged(
                                                     soundlist.get_local_volume_of_selected_item(),
                                                 ),
                                             ) {
@@ -374,7 +393,7 @@ impl TabManager {
                                 if keymod == KeyModifiers::SHIFT {
                                     // Modify local volume
                                     match soundlist.modify_local_volume(
-                                        soundlist.state.selected().unwrap(),
+                                        i,
                                         (soundlist.get_local_volume_of_selected_item() - 0.01)
                                             .clamp(-2.0, 2.0),
                                     ) {
@@ -384,15 +403,12 @@ impl TabManager {
                                         }
                                     }
                                     // Check if the playing music is the file selected on the list
-                                    if soundlist.currently_playing
-                                        == soundlist.sound_files
-                                            [soundlist.state.selected().unwrap()]
-                                        .name
+                                    if soundlist.currently_playing == soundlist.sound_files[i].name
                                     {
                                         if let Some(sender) = &mut self.sender {
                                             // Send local volume
                                             match sender.send(
-                                                tab_mod::MusicState::LocalVolumeChanged(
+                                                component::MusicState::LocalVolumeChanged(
                                                     soundlist.get_local_volume_of_selected_item(),
                                                 ),
                                             ) {
@@ -407,7 +423,7 @@ impl TabManager {
 
                             KeyCode::Enter => {
                                 if let Some(sender) = &mut self.sender {
-                                    match sender.send(tab_mod::MusicState::Remove) {
+                                    match sender.send(component::MusicState::Remove) {
                                         _ => {}
                                     };
                                 }
@@ -418,15 +434,11 @@ impl TabManager {
                                 let volume_changer_channel_2 = mts.clone();
                                 self.sender = Some(mts);
                                 self.receiver = Some(mtr);
-                                let fadein = soundlist.sound_files
-                                    [soundlist.state.selected().unwrap()]
-                                .fade_tab_content[0]
+                                let fadein = soundlist.sound_files[i].fade_tab_content[0]
                                     .input
                                     .as_mut_str();
                                 let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
-                                let fadeout = soundlist.sound_files
-                                    [soundlist.state.selected().unwrap()]
-                                .fade_tab_content[1]
+                                let fadeout = soundlist.sound_files[i].fade_tab_content[1]
                                     .input
                                     .as_mut_str();
                                 let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
@@ -435,9 +447,7 @@ impl TabManager {
                                 let song_duration = lofty::read_from_path(&std::path::Path::new(
                                     format!(
                                         "{}/{}",
-                                        soundlist.current_dir,
-                                        soundlist.sound_files[soundlist.state.selected().unwrap()]
-                                            .name
+                                        soundlist.current_dir, soundlist.sound_files[i].name
                                     )
                                     .as_mut_str(),
                                 ))
@@ -461,7 +471,7 @@ impl TabManager {
                                             );
 
                                             if volume_changer_channel
-                                                .send(tab_mod::MusicState::VolumeChanged(volume))
+                                                .send(component::MusicState::VolumeChanged(volume))
                                                 .is_err()
                                             {
                                                 break; // Exit if the receiver is disconnected
@@ -492,7 +502,7 @@ impl TabManager {
                                                 );
 
                                                 if volume_changer_channel_2
-                                                    .send(tab_mod::MusicState::VolumeChanged(
+                                                    .send(component::MusicState::VolumeChanged(
                                                         volume,
                                                     ))
                                                     .is_err()
@@ -509,7 +519,7 @@ impl TabManager {
                                     });
                                 }
 
-                                soundlist.play(wtr, wts, soundlist.state.selected().unwrap());
+                                soundlist.play(wtr, wts, i);
                             }
 
                             KeyCode::Esc => {
@@ -522,7 +532,7 @@ impl TabManager {
                             KeyCode::Backspace | KeyCode::Delete => {
                                 soundlist.currently_playing = "".to_owned();
                                 if let Some(x) = &mut self.sender {
-                                    match x.send(tab_mod::MusicState::Remove) {
+                                    match x.send(component::MusicState::Remove) {
                                         _ => {}
                                     };
                                 }
@@ -530,7 +540,7 @@ impl TabManager {
 
                             KeyCode::Char(' ') => {
                                 if let Some(sender) = &mut self.sender {
-                                    match sender.send(tab_mod::MusicState::PlayResume) {
+                                    match sender.send(component::MusicState::PlayResume) {
                                         _ => {}
                                     };
                                 }
@@ -540,9 +550,9 @@ impl TabManager {
                                 soundlist.volume += 0.01;
                                 soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
                                 if let Some(sender) = &mut self.sender {
-                                    match sender
-                                        .send(tab_mod::MusicState::VolumeChanged(soundlist.volume))
-                                    {
+                                    match sender.send(component::MusicState::VolumeChanged(
+                                        soundlist.volume,
+                                    )) {
                                         _ => {}
                                     };
                                 }
@@ -552,9 +562,9 @@ impl TabManager {
                                 soundlist.volume -= 0.01;
                                 soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
                                 if let Some(sender) = &mut self.sender {
-                                    match sender
-                                        .send(tab_mod::MusicState::VolumeChanged(soundlist.volume))
-                                    {
+                                    match sender.send(component::MusicState::VolumeChanged(
+                                        soundlist.volume,
+                                    )) {
                                         _ => {}
                                     };
                                 }
@@ -573,7 +583,7 @@ impl TabManager {
                                     soundlist.select_song(index);
                                     if keymod == KeyModifiers::CONTROL {
                                         if let Some(sender) = &mut self.sender {
-                                            match sender.send(tab_mod::MusicState::Remove) {
+                                            match sender.send(component::MusicState::Remove) {
                                                 _ => {}
                                             };
                                         }
@@ -584,15 +594,11 @@ impl TabManager {
                                         let volume_changer_channel_2 = mts.clone();
                                         self.sender = Some(mts);
                                         self.receiver = Some(mtr);
-                                        let fadein = soundlist.sound_files
-                                            [soundlist.state.selected().unwrap()]
-                                        .fade_tab_content[0]
+                                        let fadein = soundlist.sound_files[i].fade_tab_content[0]
                                             .input
                                             .as_mut_str();
                                         let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
-                                        let fadeout = soundlist.sound_files
-                                            [soundlist.state.selected().unwrap()]
-                                        .fade_tab_content[1]
+                                        let fadeout = soundlist.sound_files[i].fade_tab_content[1]
                                             .input
                                             .as_mut_str();
                                         let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
@@ -603,9 +609,7 @@ impl TabManager {
                                                 format!(
                                                     "{}/{}",
                                                     soundlist.current_dir,
-                                                    soundlist.sound_files
-                                                        [soundlist.state.selected().unwrap()]
-                                                    .name
+                                                    soundlist.sound_files[i].name
                                                 )
                                                 .as_mut_str(),
                                             ))
@@ -629,7 +633,7 @@ impl TabManager {
                                                     );
 
                                                     if volume_changer_channel
-                                                        .send(tab_mod::MusicState::VolumeChanged(
+                                                        .send(component::MusicState::VolumeChanged(
                                                             volume,
                                                         ))
                                                         .is_err()
@@ -663,7 +667,7 @@ impl TabManager {
 
                                                         if volume_changer_channel_2
                                                             .send(
-                                                                tab_mod::MusicState::VolumeChanged(
+                                                                component::MusicState::VolumeChanged(
                                                                     volume,
                                                                 ),
                                                             )
@@ -681,11 +685,7 @@ impl TabManager {
                                             });
                                         }
 
-                                        soundlist.play(
-                                            wtr,
-                                            wts,
-                                            soundlist.state.selected().unwrap(),
-                                        );
+                                        soundlist.play(wtr, wts, i);
                                     }
                                 }
                             }
@@ -768,6 +768,60 @@ impl TabManager {
                     _ => {}
                 }
             }
+            Content::DMX(dimmer, r, v, b, adr) => match key {
+                KeyCode::Up => {
+                    if keymod == KeyModifiers::ALT {
+                        **adr = adr.saturating_add(1);
+                        return;
+                    }
+                    let mut vec = vec![dimmer, r, v, b];
+                    vec.iter_mut()
+                        .map(|e| {
+                            if e.is_focused && keymod != KeyModifiers::SHIFT {
+                                if keymod == KeyModifiers::CONTROL {
+                                    e.increment(10);
+                                } else {
+                                    e.increment(1);
+                                }
+                            }
+                        })
+                        .count();
+                }
+                KeyCode::Down => {
+                    if keymod == KeyModifiers::ALT {
+                        **adr = adr.saturating_sub(1);
+                        return;
+                    }
+                    let mut vec = vec![dimmer, r, v, b];
+                    vec.iter_mut()
+                        .map(|e| {
+                            if e.is_focused && keymod != KeyModifiers::SHIFT {
+                                if keymod == KeyModifiers::CONTROL {
+                                    e.decrement(10);
+                                } else {
+                                    e.decrement(1);
+                                }
+                            }
+                        })
+                        .count();
+                }
+                KeyCode::Char(x) => {
+                    if matches!(x, '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9') {
+                        let mut vec = vec![dimmer, r, v, b];
+                        let focused = vec.iter_mut().find(|e| e.is_focused).unwrap();
+                        match format!("{}{}", focused.value, x).parse::<u8>() {
+                            Ok(v) => focused.value = v,
+                            Err(_e) => focused.value = 255,
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    let mut vec = vec![dimmer, r, v, b];
+                    let focused = vec.iter_mut().find(|e| e.is_focused).unwrap();
+                    focused.value = 0;
+                }
+                _ => {}
+            },
         }
     }
 }

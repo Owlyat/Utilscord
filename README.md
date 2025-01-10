@@ -39,7 +39,7 @@ Quit | Ctrl + C / Ctrl + Q
 - [x] Adjustable Fade In and Fade Out for each sound
 - [x] OSC Controls
 - [x] Adjustable song trim for each sound
-- [ ] Implement [dmx](https://docs.rs/dmx/latest/dmx/) to do basic lighting
+- [x] Implement [dmx](https://docs.rs/dmx/latest/dmx/) to do basic lighting
 - [ ] Implement [dante-control-rs](https://docs.rs/dante-control-rs/0.8.2/dante_control_rs/) to manage dante devices
 
 ### How to use

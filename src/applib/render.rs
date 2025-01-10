@@ -1,5 +1,6 @@
-use crate::applib::tab_mod::SoundItem;
-use crate::applib::*;
+use crate::interact_mod::component::SoundItem;
+use crate::interact_mod::*;
+use crate::interact_mod::component::DMXInput;
 use ratatui::prelude::*;
 use ratatui::widgets::block::Title;
 use ratatui::widgets::*;
@@ -45,6 +46,9 @@ impl StatefulWidget for Tab {
                         } else {
                             "| Press <Shift> + ◄ ► to change Tab |"
                         }
+                    },
+                    Content::DMX(_,_,_,_, _) => {
+                        if self.is_used() {"||"} else {"| Press <Shift> + ◄ ► to change Tab | Press ◄ ► to navigate between DMX Channel | "}
                     }
                 })
                 .position(block::Position::Bottom)
@@ -75,7 +79,11 @@ impl StatefulWidget for Tab {
                                     } else {"| Press <Shift> + ▲ ▼ to navigate |"}
                                 }
                             }
+                        },
+                        Content::DMX(..) => {
+                            if self.is_used() {""} else {"| ▲ ▼ to modify DMX Value |"}
                         }
+                        
                     }
                 )
                 .position(block::Position::Bottom)
@@ -93,8 +101,7 @@ impl StatefulWidget for Tab {
 
                 let [tab_content, tab_footer] = vert.areas(tab_content);
 
-                input
-                    .clone()
+                input.clone()
                     .render(tab_content, buf, &mut input.input_field_title);
 
                 if sound_list.editingfades {
@@ -113,6 +120,10 @@ impl StatefulWidget for Tab {
                 }
             }
             Content::OSC(listening_ip_input, remote_ip_input) => {
+                match [listening_ip_input.focus,remote_ip_input.focus].iter().find(|b| **b) {
+                    Some(_) => {},
+                    None => {listening_ip_input.focus = true},
+                }
                 let vert = Layout::vertical([Constraint::Fill(1), Constraint::Fill(3)]);
                 let [tab_content, _tab_footer] = vert.areas(tab_content);
                 let ip_input_areas =
@@ -126,6 +137,23 @@ impl StatefulWidget for Tab {
                 remote_ip_input
                     .clone()
                     .render(remote_input_area, buf, &mut remote_ip_input.input)
+            },
+            Content::DMX(dimmer_input,r_input,v_input,b_input,adr) => {
+                match [dimmer_input.is_focused,r_input.is_focused,v_input.is_focused,b_input.is_focused].iter().find(|b| if **b {true} else {false}) {
+                    Some(_) => {
+                    },
+                    None => dimmer_input.is_focused = true,
+                }
+                let vert = Layout::vertical([Constraint::Percentage(10),Constraint::Percentage(90)]);
+                let [top, bottom] = vert.areas(tab_content);
+                Paragraph::new(format!("{}",adr)).block(Block::bordered().title("DMX Adress").title_bottom("Press <Alt> + ⬆️⬇️ to change DMX adress").title_alignment(Alignment::Center)).render(top,buf );
+                let hor = Layout::horizontal(Constraint::from_percentages([25,25,25,25]));
+                let [left,lmid,rmid,right] = hor.areas(bottom);
+                dimmer_input.clone().render(left,buf,&mut dimmer_input.value);
+                r_input.clone().render(lmid,buf ,&mut r_input.value );
+                v_input.clone().render(rmid,buf ,&mut v_input.value );
+                b_input.clone().render(right,buf ,&mut b_input.value );
+                
             }
         }
     }
@@ -276,4 +304,30 @@ impl StatefulWidget for SoundList {
             .highlight_spacing(HighlightSpacing::Always);
         StatefulWidget::render(sound_list, area, buf, &mut self.state.clone());
     }
+}
+
+impl StatefulWidget for DMXInput {
+    type State = u8;
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let frame = Block::bordered()
+            .title(self.title.clone())
+            .style(if self.is_focused {
+                Style::new().fg(Color::Yellow)
+            } else {
+                    Style::new().fg(Color::White)
+                }).title_alignment(Alignment::Center)
+            .title_position(block::Position::Top);
+        
+        let bar = Bar::default()
+            .value(*state as u64);
+        BarChart::default()
+            .direction(Direction::Vertical)
+            .max(255)
+            .data(BarGroup::default().bars(&vec![bar]))
+            .style(Style::new()
+                .fg(if self.is_focused {Color::Yellow} else {Color::White}))
+            .bar_width(frame.inner(area).width)
+            .render(frame.inner(area),buf );
+        frame.render(area,buf );
+    }
 }
