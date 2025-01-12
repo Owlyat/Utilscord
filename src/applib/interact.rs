@@ -5,7 +5,9 @@ use component::IPInput;
 use component::MusicState;
 use component::{Content, Input, SoundList, Tab};
 use core::panic;
-use lofty::file::AudioFile;
+use ratatui::crossterm::event::KeyEvent;
+use ratatui::crossterm::event::KeyEventKind;
+use ratatui::crossterm::event::MouseEvent;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use rosc::OscBundle;
 use rosc::OscMessage;
@@ -13,8 +15,7 @@ use rosc::OscPacket;
 use std::env;
 use std::fs;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::vec;
 
 pub struct TabManager {
@@ -74,6 +75,8 @@ impl TabManager {
                             ..Default::default()
                         },
                         Box::new(1),
+                        String::new(),
+                        String::new(),
                     ),
                 },
             ],
@@ -89,6 +92,9 @@ impl TabManager {
         app
     }
 
+    pub fn get_selected_tab(&mut self) -> &mut Tab {
+        &mut self.tabs[self.selected_tab]
+    }
     pub fn next(&mut self) {
         self.selected_tab = (self.selected_tab + 1) % self.tabs.len()
     }
@@ -178,7 +184,7 @@ impl TabManager {
         }
         if osc_path[2] == "Stop" {
             if let Content::MainMenu(soundlist, _input) = &mut self.tabs[0].content {
-                soundlist.currently_playing = "".to_owned();
+                soundlist.currently_playing.clear();
                 if let Some(x) = &mut self.sender {
                     match x.send(component::MusicState::Remove) {
                         _ => {}
@@ -250,11 +256,9 @@ impl TabManager {
                         _ => {}
                     };
                 }
-                soundlist.currently_playing = "".to_owned();
+                soundlist.currently_playing.clear();
                 let (mts, wtr) = mpsc::channel();
                 let (wts, mtr) = mpsc::channel();
-                let volume_changer_channel = mts.clone();
-                let volume_changer_channel_2 = mts.clone();
                 self.sender = Some(mts);
                 self.receiver = Some(mtr);
                 let fadein = soundlist.sound_files[index] //A CHANGER
@@ -267,134 +271,79 @@ impl TabManager {
                     .input
                     .as_mut_str();
                 let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
-                let fade_in_duration = Duration::from_secs(fadein as u64);
-                let fade_out_duration = Duration::from_secs(fadeout as u64);
-                let song_duration = lofty::read_from_path(&std::path::Path::new(
-                    format!(
-                        "{}/{}",
-                        soundlist.current_dir,
-                        soundlist.sound_files[index] //A CHANGER
-                            .name
-                    )
-                    .as_mut_str(),
-                ))
-                .unwrap()
-                .properties()
-                .duration();
-                if fadein != 0.0 {
-                    let end_volume = soundlist.volume;
-                    let start_volume = soundlist.volume - soundlist.volume;
+                let fade_in_duration = match fadein {
+                    x if x > 0.0 => Some(Duration::from_secs(fadein as u64)),
+                    _ => None,
+                };
+                let fade_out_duration = match fadeout {
+                    x if x > 0.0 => Some(Duration::from_secs(fadeout as u64)),
+                    _ => None,
+                };
 
-                    // Spawn a new thread for the fading process
-                    thread::spawn(move || {
-                        let now = Instant::now();
-
-                        loop {
-                            let volume = interpolate_value(
-                                now.elapsed(),
-                                fade_in_duration,
-                                start_volume,
-                                end_volume,
-                            );
-
-                            if volume_changer_channel
-                                .send(component::MusicState::VolumeChanged(volume))
-                                .is_err()
-                            {
-                                break; // Exit if the receiver is disconnected
-                            }
-                            if now.elapsed() >= fade_in_duration {
-                                break;
-                            }
-                            // Sleep briefly to avoid high CPU usage and control the update rate
-                            thread::sleep(Duration::from_millis(50));
-                        }
-                    });
-                }
-                if fadeout != 0.0 {
-                    let end_volume = soundlist.volume;
-                    let start_volume = soundlist.volume - soundlist.volume;
-
-                    thread::spawn(move || {
-                        let fade_out_start_point = song_duration - fade_out_duration;
-                        let now = Instant::now();
-                        loop {
-                            if now.elapsed() >= fade_out_start_point {
-                                let volume = interpolate_value(
-                                    song_duration.abs_diff(now.elapsed()),
-                                    fade_out_duration,
-                                    start_volume,
-                                    end_volume,
-                                );
-
-                                if volume_changer_channel_2
-                                    .send(component::MusicState::VolumeChanged(volume))
-                                    .is_err()
-                                {
-                                    break; // Exit if the receiver is disconnected
-                                }
-                            }
-
-                            if now.elapsed() >= song_duration {
-                                break;
-                            }
-                            thread::sleep(Duration::from_millis(50));
-                        }
-                    });
-                }
-
-                soundlist.play(wtr, wts, index); // A CHANGER
+                soundlist.play(wtr, wts, index, fade_in_duration, fade_out_duration);
             }
         }
     }
 
-    pub fn interact(&mut self, key: KeyCode, keymod: KeyModifiers) {
+    pub fn handle_event(&mut self, event: ratatui::crossterm::event::Event) {
+        match event {
+            ratatui::crossterm::event::Event::FocusGained => self.handle_event_focus_gained(),
+            ratatui::crossterm::event::Event::FocusLost => self.handle_event_focus_lost(),
+            ratatui::crossterm::event::Event::Key(key_event) => self.handle_keys_event(key_event),
+            ratatui::crossterm::event::Event::Mouse(mouse_event) => {
+                self.handle_mouse_event(mouse_event);
+            }
+            ratatui::crossterm::event::Event::Paste(content) => self.handle_event_paste(content),
+            ratatui::crossterm::event::Event::Resize(x, y) => self.handle_event_resize(x, y),
+        }
+    }
+    fn handle_keys_event(&mut self, key: KeyEvent) {
         match &mut self.tabs[self.selected_tab].content {
-            Content::MainMenu(soundlist, inputfield) => {
-                // Selected inputfield
-                if inputfield.is_selected {
-                    input_field_logic(inputfield, key, keymod, soundlist);
+            Content::MainMenu(sound_list, input) if key.kind == KeyEventKind::Press => {
+                if input.is_selected {
+                    input_field_logic(input, key.code, key.modifiers, sound_list);
+                    return;
                 }
-                // Selected Soundlist no fade edit
-                else if soundlist.selected && !soundlist.editingfades {
-                    if let Some(i) = soundlist.state.selected() {
-                        match key {
-                            KeyCode::Up => {
-                                if keymod == KeyModifiers::SHIFT {
-                                    // Modify local volume
-                                    match soundlist.modify_local_volume(
-                                        i,
-                                        soundlist.get_local_volume_of_selected_item() + 0.01,
+                if sound_list.selected {
+                    if !sound_list.editingfades {
+                        if let Some(index) = sound_list.state.selected() {
+                            match key.code {
+                                KeyCode::Up if key.modifiers == KeyModifiers::SHIFT => {
+                                    match sound_list.modify_local_volume(
+                                        index,
+                                        sound_list.get_local_volume_of_selected_item() + 0.01,
                                     ) {
                                         Ok(_) => {}
                                         Err(e) => {
                                             panic!("{}", e)
                                         }
                                     }
-                                    // Check if the playing music is the file selected on the list
-                                    if soundlist.currently_playing == soundlist.sound_files[i].name
+                                    // Check if the playing song is the file selected on the list
+                                    // so it sends the new volume to the currently playing song
+                                    if sound_list.currently_playing
+                                        == sound_list.sound_files[index].name
                                     {
                                         if let Some(sender) = &mut self.sender {
                                             // Send local volume
-                                            match sender.send(
+                                            if let Ok(_) = sender.send(
                                                 component::MusicState::LocalVolumeChanged(
-                                                    soundlist.get_local_volume_of_selected_item(),
+                                                    sound_list.get_local_volume_of_selected_item(),
                                                 ),
                                             ) {
-                                                _ => {}
+                                                return;
                                             }
                                         }
                                     }
-                                } else {
-                                    soundlist.previous_song();
                                 }
-                            }
-                            KeyCode::Down => {
-                                if keymod == KeyModifiers::SHIFT {
+                                KeyCode::Up => {
+                                    sound_list.previous_song();
+                                    return;
+                                }
+                                KeyCode::Down if key.modifiers == KeyModifiers::SHIFT => {
                                     // Modify local volume
-                                    match soundlist.modify_local_volume(
-                                        i,
-                                        (soundlist.get_local_volume_of_selected_item() - 0.01)
+                                    match sound_list.modify_local_volume(
+                                        index,
+                                        (sound_list.get_local_volume_of_selected_item() - 0.01)
                                             .clamp(-2.0, 2.0),
                                     ) {
                                         Ok(_) => {}
@@ -402,333 +351,205 @@ impl TabManager {
                                             panic!("{}", e)
                                         }
                                     }
-                                    // Check if the playing music is the file selected on the list
-                                    if soundlist.currently_playing == soundlist.sound_files[i].name
+                                    if sound_list.currently_playing
+                                        == sound_list.sound_files[index].name
                                     {
                                         if let Some(sender) = &mut self.sender {
-                                            // Send local volume
-                                            match sender.send(
+                                            if let Ok(_) = sender.send(
                                                 component::MusicState::LocalVolumeChanged(
-                                                    soundlist.get_local_volume_of_selected_item(),
+                                                    sound_list.get_local_volume_of_selected_item(),
                                                 ),
                                             ) {
-                                                _ => {}
+                                                return;
                                             }
                                         }
                                     }
-                                } else {
-                                    soundlist.next_song();
                                 }
-                            }
-
-                            KeyCode::Enter => {
-                                if let Some(sender) = &mut self.sender {
-                                    match sender.send(component::MusicState::Remove) {
-                                        _ => {}
+                                KeyCode::Down => {
+                                    sound_list.next_song();
+                                    return;
+                                }
+                                KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                                    if let Some(sender) = &mut self.sender {
+                                        match sender.send(component::MusicState::Remove) {
+                                            _ => {}
+                                        };
+                                    }
+                                    sound_list.currently_playing.clear();
+                                    let (mts, wtr) = mpsc::channel();
+                                    let (wts, mtr) = mpsc::channel();
+                                    self.sender = Some(mts);
+                                    self.receiver = Some(mtr);
+                                    let fadein = sound_list.sound_files[index].fade_tab_content[0]
+                                        .input
+                                        .as_mut_str();
+                                    let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
+                                    let fadeout = sound_list.sound_files[index].fade_tab_content[1]
+                                        .input
+                                        .as_mut_str();
+                                    let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
+                                    let fade_in_duration = match fadein {
+                                        x if x > 0.0 => Some(Duration::from_secs(fadein as u64)),
+                                        _ => None,
                                     };
+                                    let fade_out_duration = match fadeout {
+                                        x if x > 0.0 => Some(Duration::from_secs(fadeout as u64)),
+                                        _ => None,
+                                    };
+                                    sound_list.play(
+                                        wtr,
+                                        wts,
+                                        index,
+                                        fade_in_duration,
+                                        fade_out_duration,
+                                    );
+                                    return;
                                 }
-                                soundlist.currently_playing = "".to_owned();
-                                let (mts, wtr) = mpsc::channel();
-                                let (wts, mtr) = mpsc::channel();
-                                let volume_changer_channel = mts.clone();
-                                let volume_changer_channel_2 = mts.clone();
-                                self.sender = Some(mts);
-                                self.receiver = Some(mtr);
-                                let fadein = soundlist.sound_files[i].fade_tab_content[0]
-                                    .input
-                                    .as_mut_str();
-                                let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
-                                let fadeout = soundlist.sound_files[i].fade_tab_content[1]
-                                    .input
-                                    .as_mut_str();
-                                let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
-                                let fade_in_duration = Duration::from_secs(fadein as u64);
-                                let fade_out_duration = Duration::from_secs(fadeout as u64);
-                                let song_duration = lofty::read_from_path(&std::path::Path::new(
-                                    format!(
-                                        "{}/{}",
-                                        soundlist.current_dir, soundlist.sound_files[i].name
-                                    )
-                                    .as_mut_str(),
-                                ))
-                                .unwrap()
-                                .properties()
-                                .duration();
-                                if fadein != 0.0 {
-                                    let end_volume = soundlist.volume;
-                                    let start_volume = soundlist.volume - soundlist.volume;
+                                KeyCode::Esc if key.kind == KeyEventKind::Press => {
+                                    if sound_list.editingfades {
+                                        sound_list.editingfades = false;
+                                    }
+                                    sound_list.unselect();
+                                    return;
+                                }
 
-                                    // Spawn a new thread for the fading process
-                                    thread::spawn(move || {
-                                        let now = Instant::now();
-
-                                        loop {
-                                            let volume = interpolate_value(
-                                                now.elapsed(),
-                                                fade_in_duration,
-                                                start_volume,
-                                                end_volume,
-                                            );
-
-                                            if volume_changer_channel
-                                                .send(component::MusicState::VolumeChanged(volume))
-                                                .is_err()
-                                            {
-                                                break; // Exit if the receiver is disconnected
-                                            }
-                                            if now.elapsed() >= fade_in_duration {
-                                                break;
-                                            }
-                                            // Sleep briefly to avoid high CPU usage and control the update rate
-                                            thread::sleep(Duration::from_millis(50));
+                                KeyCode::Backspace | KeyCode::Delete => {
+                                    sound_list.currently_playing.clear();
+                                    if let Some(x) = &mut self.sender {
+                                        if let Ok(_) = x.send(component::MusicState::Remove) {
+                                            return;
                                         }
-                                    });
+                                    }
                                 }
-                                if fadeout != 0.0 {
-                                    let end_volume = soundlist.volume;
-                                    let start_volume = soundlist.volume - soundlist.volume;
 
-                                    thread::spawn(move || {
-                                        let fade_out_start_point =
-                                            song_duration - fade_out_duration;
-                                        let now = Instant::now();
-                                        loop {
-                                            if now.elapsed() >= fade_out_start_point {
-                                                let volume = interpolate_value(
-                                                    song_duration.abs_diff(now.elapsed()),
-                                                    fade_out_duration,
-                                                    start_volume,
-                                                    end_volume,
-                                                );
+                                KeyCode::Char(' ') => {
+                                    if let Some(sender) = &mut self.sender {
+                                        if let Ok(_) =
+                                            sender.send(component::MusicState::PlayResume)
+                                        {
+                                        }
+                                        return;
+                                    }
+                                }
 
-                                                if volume_changer_channel_2
-                                                    .send(component::MusicState::VolumeChanged(
-                                                        volume,
-                                                    ))
-                                                    .is_err()
-                                                {
-                                                    break; // Exit if the receiver is disconnected
+                                KeyCode::Char('+') => {
+                                    sound_list.volume += 0.01;
+                                    sound_list.volume = sound_list.volume.clamp(0.0, 2.0);
+                                    if let Some(sender) = &mut self.sender {
+                                        match sender.send(component::MusicState::VolumeChanged(
+                                            sound_list.volume,
+                                        )) {
+                                            _ => return,
+                                        };
+                                    }
+                                }
+
+                                KeyCode::Char('-') => {
+                                    sound_list.volume -= 0.01;
+                                    sound_list.volume = sound_list.volume.clamp(0.0, 2.0);
+                                    if let Some(sender) = &mut self.sender {
+                                        if let Ok(_) = sender.send(
+                                            component::MusicState::VolumeChanged(sound_list.volume),
+                                        ) {
+                                            return;
+                                        };
+                                    }
+                                }
+
+                                KeyCode::Char('f') => {
+                                    sound_list.toggle_fade_edition();
+                                    return;
+                                }
+
+                                KeyCode::Char(c) => {
+                                    if matches!(c, '0'..='9') {
+                                        let index = c.to_string().parse::<usize>().unwrap();
+                                        sound_list.select_song(index);
+                                        if key.modifiers == KeyModifiers::CONTROL {
+                                            if let Some(sender) = &mut self.sender {
+                                                match sender.send(component::MusicState::Remove) {
+                                                    _ => {}
+                                                };
+                                            }
+                                            sound_list.currently_playing.clear();
+                                            let (mts, wtr) = mpsc::channel();
+                                            let (wts, mtr) = mpsc::channel();
+                                            self.sender = Some(mts);
+                                            self.receiver = Some(mtr);
+                                            let fadein = sound_list.sound_files[index]
+                                                .fade_tab_content[0]
+                                                .input
+                                                .as_mut_str();
+                                            let fadein =
+                                                fadein.trim().parse::<f32>().unwrap_or(0.0);
+                                            let fadeout = sound_list.sound_files[index]
+                                                .fade_tab_content[1]
+                                                .input
+                                                .as_mut_str();
+                                            let fadeout =
+                                                fadeout.trim().parse::<f32>().unwrap_or(0.0);
+                                            let fade_in_duration = match fadein {
+                                                x if x > 0.0 => {
+                                                    Some(Duration::from_secs(fadein as u64))
                                                 }
-                                            }
-
-                                            if now.elapsed() >= song_duration {
-                                                break;
-                                            }
-                                            thread::sleep(Duration::from_millis(50));
-                                        }
-                                    });
-                                }
-
-                                soundlist.play(wtr, wts, i);
-                            }
-
-                            KeyCode::Esc => {
-                                if soundlist.editingfades {
-                                    soundlist.editingfades = false;
-                                }
-                                soundlist.unselect();
-                            }
-
-                            KeyCode::Backspace | KeyCode::Delete => {
-                                soundlist.currently_playing = "".to_owned();
-                                if let Some(x) = &mut self.sender {
-                                    match x.send(component::MusicState::Remove) {
-                                        _ => {}
-                                    };
-                                }
-                            }
-
-                            KeyCode::Char(' ') => {
-                                if let Some(sender) = &mut self.sender {
-                                    match sender.send(component::MusicState::PlayResume) {
-                                        _ => {}
-                                    };
-                                }
-                            }
-
-                            KeyCode::Char('+') => {
-                                soundlist.volume += 0.01;
-                                soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
-                                if let Some(sender) = &mut self.sender {
-                                    match sender.send(component::MusicState::VolumeChanged(
-                                        soundlist.volume,
-                                    )) {
-                                        _ => {}
-                                    };
-                                }
-                            }
-
-                            KeyCode::Char('-') => {
-                                soundlist.volume -= 0.01;
-                                soundlist.volume = soundlist.volume.clamp(0.0, 2.0);
-                                if let Some(sender) = &mut self.sender {
-                                    match sender.send(component::MusicState::VolumeChanged(
-                                        soundlist.volume,
-                                    )) {
-                                        _ => {}
-                                    };
-                                }
-                            }
-
-                            KeyCode::Char('f') => {
-                                soundlist.toggle_fade_edition();
-                            }
-
-                            KeyCode::Char(c) => {
-                                if matches!(
-                                    c,
-                                    '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
-                                ) {
-                                    let index = c.to_string().parse::<usize>().unwrap();
-                                    soundlist.select_song(index);
-                                    if keymod == KeyModifiers::CONTROL {
-                                        if let Some(sender) = &mut self.sender {
-                                            match sender.send(component::MusicState::Remove) {
-                                                _ => {}
+                                                _ => None,
                                             };
-                                        }
-                                        soundlist.currently_playing = "".to_owned();
-                                        let (mts, wtr) = mpsc::channel();
-                                        let (wts, mtr) = mpsc::channel();
-                                        let volume_changer_channel = mts.clone();
-                                        let volume_changer_channel_2 = mts.clone();
-                                        self.sender = Some(mts);
-                                        self.receiver = Some(mtr);
-                                        let fadein = soundlist.sound_files[i].fade_tab_content[0]
-                                            .input
-                                            .as_mut_str();
-                                        let fadein = fadein.trim().parse::<f32>().unwrap_or(0.0);
-                                        let fadeout = soundlist.sound_files[i].fade_tab_content[1]
-                                            .input
-                                            .as_mut_str();
-                                        let fadeout = fadeout.trim().parse::<f32>().unwrap_or(0.0);
-                                        let fade_in_duration = Duration::from_secs(fadein as u64);
-                                        let fade_out_duration = Duration::from_secs(fadeout as u64);
-                                        let song_duration =
-                                            lofty::read_from_path(&std::path::Path::new(
-                                                format!(
-                                                    "{}/{}",
-                                                    soundlist.current_dir,
-                                                    soundlist.sound_files[i].name
-                                                )
-                                                .as_mut_str(),
-                                            ))
-                                            .unwrap()
-                                            .properties()
-                                            .duration();
-                                        if fadein != 0.0 {
-                                            let end_volume = soundlist.volume;
-                                            let start_volume = soundlist.volume - soundlist.volume;
-
-                                            // Spawn a new thread for the fading process
-                                            thread::spawn(move || {
-                                                let now = Instant::now();
-
-                                                loop {
-                                                    let volume = interpolate_value(
-                                                        now.elapsed(),
-                                                        fade_in_duration,
-                                                        start_volume,
-                                                        end_volume,
-                                                    );
-
-                                                    if volume_changer_channel
-                                                        .send(component::MusicState::VolumeChanged(
-                                                            volume,
-                                                        ))
-                                                        .is_err()
-                                                    {
-                                                        break; // Exit if the receiver is disconnected
-                                                    }
-                                                    if now.elapsed() >= fade_in_duration {
-                                                        break;
-                                                    }
-                                                    // Sleep briefly to avoid high CPU usage and control the update rate
-                                                    thread::sleep(Duration::from_millis(50));
+                                            let fade_out_duration = match fadeout {
+                                                x if x > 0.0 => {
+                                                    Some(Duration::from_secs(fadeout as u64))
                                                 }
-                                            });
+                                                _ => None,
+                                            };
+
+                                            sound_list.play(
+                                                wtr,
+                                                wts,
+                                                index,
+                                                fade_in_duration,
+                                                fade_out_duration,
+                                            );
+                                            return;
                                         }
-                                        if fadeout != 0.0 {
-                                            let end_volume = soundlist.volume;
-                                            let start_volume = soundlist.volume - soundlist.volume;
-
-                                            thread::spawn(move || {
-                                                let fade_out_start_point =
-                                                    song_duration - fade_out_duration;
-                                                let now = Instant::now();
-                                                loop {
-                                                    if now.elapsed() >= fade_out_start_point {
-                                                        let volume = interpolate_value(
-                                                            song_duration.abs_diff(now.elapsed()),
-                                                            fade_out_duration,
-                                                            start_volume,
-                                                            end_volume,
-                                                        );
-
-                                                        if volume_changer_channel_2
-                                                            .send(
-                                                                component::MusicState::VolumeChanged(
-                                                                    volume,
-                                                                ),
-                                                            )
-                                                            .is_err()
-                                                        {
-                                                            break; // Exit if the receiver is disconnected
-                                                        }
-                                                    }
-
-                                                    if now.elapsed() >= song_duration {
-                                                        break;
-                                                    }
-                                                    thread::sleep(Duration::from_millis(50));
-                                                }
-                                            });
-                                        }
-
-                                        soundlist.play(wtr, wts, i);
                                     }
                                 }
+
+                                _ => (),
                             }
-                            _ => {}
-                        }
-                    } else if soundlist.state.selected() == None
-                        && fs::read_dir(soundlist.current_dir.clone()).is_ok()
-                    {
-                        match key {
-                            KeyCode::Enter => soundlist.prompt_selection(),
-                            _ => {}
+                        } else if fs::read_dir(sound_list.current_dir.clone()).is_ok() {
+                            match key.code {
+                                KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                                    sound_list.prompt_selection();
+                                    return;
+                                }
+                                _ => (),
+                            }
                         }
                     }
-                //EDITING FADES
-                } else if soundlist.editingfades {
-                    fade_tab(soundlist, key, keymod);
+                    if sound_list.editingfades {
+                        fade_tab(sound_list, key.code, key.modifiers);
+                        return;
+                    }
                 }
             }
-
-            Content::OSC(listening_ip_input, remote_ip_input) => {
+            Content::OSC(listening_ip_input, remote_ip_input)
+                if key.kind == KeyEventKind::Press =>
+            {
                 let inputs = vec![listening_ip_input, remote_ip_input];
-                match key {
-                    //OSC
-                    //IPINPUT INPUT LOGIC
+                match key.code {
                     KeyCode::Enter => {
                         for input in inputs {
                             if input.focus {
-                                match input.toggle_edit_mode() {
-                                    Ok(rcv) => {
-                                        self.osc_receiver = Some(rcv);
-                                    }
-                                    Err(()) => {
-                                        self.osc_receiver = None;
-                                    }
+                                if let Ok(rcv) = input.toggle_edit_mode() {
+                                    self.osc_receiver = Some(rcv);
+                                } else {
+                                    self.osc_receiver = None;
                                 }
+                                return;
                             }
                         }
                     }
                     KeyCode::Char(char) => {
-                        if !matches!(
-                            char,
-                            '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' | ':' | '.'
-                        ) {
+                        if !matches!(char, '0'..='9' | ':' | '.') {
                             return;
                         }
                         for input in inputs {
@@ -736,17 +557,20 @@ impl TabManager {
                                 input.enter_char(char)
                             }
                         }
+                        return;
                     }
                     KeyCode::Backspace => {
                         for input in inputs {
                             if input.edit_mode {
-                                if keymod == KeyModifiers::CONTROL {
+                                if key.modifiers == KeyModifiers::CONTROL {
                                     for _ in input.clone().input.chars() {
                                         input.move_cursor_right();
                                         input.delete_char();
                                     }
+                                    return;
                                 } else {
-                                    input.delete_char()
+                                    input.delete_char();
+                                    return;
                                 }
                             }
                         }
@@ -754,76 +578,136 @@ impl TabManager {
                     KeyCode::Left => {
                         for input in inputs {
                             if input.edit_mode {
-                                input.move_cursor_left()
+                                input.move_cursor_left();
+                                return;
                             }
                         }
                     }
                     KeyCode::Right => {
                         for input in inputs {
                             if input.edit_mode {
-                                input.move_cursor_right()
+                                input.move_cursor_right();
+                                return;
                             }
                         }
+                    }
+                    _ => (),
+                }
+            }
+            Content::DMX(dimmer, r, v, b, adr, serial, _dmx_status)
+                if key.kind == KeyEventKind::Press =>
+            {
+                match key.code {
+                    KeyCode::Up => {
+                        if key.modifiers == KeyModifiers::ALT {
+                            if **adr != open_dmx::DMX_CHANNELS {
+                                **adr = adr.saturating_add(1);
+                                return;
+                            }
+                            return;
+                        }
+                        let mut dmx_faders = vec![dimmer, r, v, b];
+                        dmx_faders
+                            .iter_mut()
+                            .map(|dmx_fader| {
+                                if dmx_fader.is_focused {
+                                    if key.modifiers == KeyModifiers::CONTROL {
+                                        dmx_fader.increment(10);
+                                    } else {
+                                        dmx_fader.increment(1);
+                                    }
+                                }
+                            })
+                            .count();
+                    }
+                    KeyCode::Down => {
+                        if key.modifiers == KeyModifiers::ALT {
+                            if **adr != 1 {
+                                **adr = adr.saturating_sub(1);
+                                return;
+                            }
+                            return;
+                        }
+                        let mut dmx_faders = vec![dimmer, r, v, b];
+                        dmx_faders
+                            .iter_mut()
+                            .map(|dmx_fader| {
+                                if dmx_fader.is_focused {
+                                    if key.modifiers == KeyModifiers::CONTROL {
+                                        dmx_fader.decrement(10);
+                                    } else {
+                                        dmx_fader.decrement(1);
+                                    }
+                                }
+                            })
+                            .count();
+                    }
+                    KeyCode::Char(char) if key.modifiers.is_empty() => {
+                        let mut dmx_faders = vec![dimmer, r, v, b];
+
+                        if matches!(char, '0'..='9') {
+                            let focused = dmx_faders
+                                .iter_mut()
+                                .find(|dmx_fader| dmx_fader.is_focused)
+                                .unwrap();
+                            match format!("{}{}", focused.value, char).parse::<u8>() {
+                                Ok(v) => {
+                                    focused.value = v;
+                                    return;
+                                }
+                                Err(_e) => {
+                                    focused.value = 255;
+                                    return;
+                                }
+                            }
+                        } else if matches!(char, 'f' | 'F') {
+                            dmx_faders.iter_mut().for_each(|dmx_fader| {
+                                if dmx_fader.is_focused {
+                                    dmx_fader.value = 255;
+                                }
+                            });
+                            return;
+                        } else if matches!(char, '.' | 'r' | 'R') {
+                            dmx_faders.iter_mut().for_each(|dmx_fader| {
+                                if dmx_fader.is_focused {
+                                    dmx_fader.value = 0;
+                                }
+                            });
+                            return;
+                        }
+                    }
+                    KeyCode::Char(char) if key.modifiers == KeyModifiers::CONTROL => {
+                        serial.push(char);
+                        return;
+                    }
+                    KeyCode::Backspace => {
+                        if key.modifiers == KeyModifiers::CONTROL {
+                            serial.pop();
+                            return;
+                        }
+                        if key.modifiers == KeyModifiers::SHIFT {
+                            serial.clear();
+                            return;
+                        }
+                        let mut dmx_faders = vec![dimmer, r, v, b];
+                        let focused = dmx_faders
+                            .iter_mut()
+                            .find(|dmx_fader| dmx_fader.is_focused)
+                            .unwrap();
+                        focused.value = 0;
+                        return;
                     }
                     _ => {}
                 }
             }
-            Content::DMX(dimmer, r, v, b, adr) => match key {
-                KeyCode::Up => {
-                    if keymod == KeyModifiers::ALT {
-                        **adr = adr.saturating_add(1);
-                        return;
-                    }
-                    let mut vec = vec![dimmer, r, v, b];
-                    vec.iter_mut()
-                        .map(|e| {
-                            if e.is_focused && keymod != KeyModifiers::SHIFT {
-                                if keymod == KeyModifiers::CONTROL {
-                                    e.increment(10);
-                                } else {
-                                    e.increment(1);
-                                }
-                            }
-                        })
-                        .count();
-                }
-                KeyCode::Down => {
-                    if keymod == KeyModifiers::ALT {
-                        **adr = adr.saturating_sub(1);
-                        return;
-                    }
-                    let mut vec = vec![dimmer, r, v, b];
-                    vec.iter_mut()
-                        .map(|e| {
-                            if e.is_focused && keymod != KeyModifiers::SHIFT {
-                                if keymod == KeyModifiers::CONTROL {
-                                    e.decrement(10);
-                                } else {
-                                    e.decrement(1);
-                                }
-                            }
-                        })
-                        .count();
-                }
-                KeyCode::Char(x) => {
-                    if matches!(x, '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9') {
-                        let mut vec = vec![dimmer, r, v, b];
-                        let focused = vec.iter_mut().find(|e| e.is_focused).unwrap();
-                        match format!("{}{}", focused.value, x).parse::<u8>() {
-                            Ok(v) => focused.value = v,
-                            Err(_e) => focused.value = 255,
-                        }
-                    }
-                }
-                KeyCode::Backspace => {
-                    let mut vec = vec![dimmer, r, v, b];
-                    let focused = vec.iter_mut().find(|e| e.is_focused).unwrap();
-                    focused.value = 0;
-                }
-                _ => {}
-            },
+            _ => {}
         }
     }
+    fn handle_mouse_event(&mut self, _mouse: MouseEvent) {}
+    fn handle_event_focus_gained(&mut self) {}
+    fn handle_event_focus_lost(&mut self) {}
+    fn handle_event_paste(&mut self, _content: String) {}
+    fn handle_event_resize(&mut self, _x: u16, _y: u16) {}
 }
 
 impl Default for TabManager {
@@ -893,8 +777,17 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                 }
             }
             KeyCode::Char(char_to_insert) => match char_to_insert {
-                '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' | '.' => {
-                    si.fade_tab_content[0].enter_char(char_to_insert);
+                '0'..'9' | '.' => {
+                    if Duration::from_secs(
+                        format!("{}{}", si.fade_tab_content[0].input, char_to_insert)
+                            .parse::<u64>()
+                            .unwrap(),
+                    ) > si.max_duration
+                    {
+                        si.fade_tab_content[0].input = si.max_duration.as_secs().to_string();
+                    } else {
+                        si.fade_tab_content[0].enter_char(char_to_insert);
+                    }
                 }
                 _ => {}
             },
@@ -914,8 +807,17 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                 }
             }
             KeyCode::Char(char_to_insert) => match char_to_insert {
-                '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' | '.' => {
-                    si.fade_tab_content[1].enter_char(char_to_insert);
+                '0'..'9' | '.' => {
+                    if Duration::from_secs(
+                        format!("{}{}", si.fade_tab_content[1].input, char_to_insert)
+                            .parse::<u64>()
+                            .unwrap(),
+                    ) > si.max_duration
+                    {
+                        si.fade_tab_content[1].input = si.max_duration.as_secs().to_string();
+                    } else {
+                        si.fade_tab_content[1].enter_char(char_to_insert);
+                    }
                 }
                 _ => {}
             },
@@ -935,7 +837,7 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                 }
             }
             KeyCode::Char(char_to_insert) => match char_to_insert {
-                '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '0' => {
+                '0'..'9' => {
                     si.fade_tab_content[2].enter_char(char_to_insert);
 
                     match si.fade_tab_content[2].input.parse::<u64>() {
@@ -994,16 +896,5 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
             soundlist.toggle_fade_edition();
         }
         _ => {}
-    }
-}
-
-fn interpolate_value(elapsed: Duration, fade: Duration, start: f32, end: f32) -> f32 {
-    let t = elapsed.as_secs_f32();
-
-    if t <= fade.as_secs_f32() {
-        // Interpolate from start to end during fade
-        start + (end - start) * (t / fade.as_secs_f32()).clamp(0.0, 1.0)
-    } else {
-        end
     }
 }

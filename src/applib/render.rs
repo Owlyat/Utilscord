@@ -29,7 +29,7 @@ impl StatefulWidget for Tab {
                                 }
                             }
                         } else {
-                            if sound_list.selected && sound_list.sound_files.len() != 0 {
+                            if  sound_list.selected && sound_list.sound_files.len() != 0 {
                                 "| Press <Shift> + ◄ ► to change Tab | Press <Enter> to enter the Sound List |"
                             } else {
                                 if input.is_selected {
@@ -47,7 +47,7 @@ impl StatefulWidget for Tab {
                             "| Press <Shift> + ◄ ► to change Tab |"
                         }
                     },
-                    Content::DMX(_,_,_,_, _) => {
+                    Content::DMX(..) => {
                         if self.is_used() {"||"} else {"| Press <Shift> + ◄ ► to change Tab | Press ◄ ► to navigate between DMX Channel | "}
                     }
                 })
@@ -81,7 +81,7 @@ impl StatefulWidget for Tab {
                             }
                         },
                         Content::DMX(..) => {
-                            if self.is_used() {""} else {"| ▲ ▼ to modify DMX Value |"}
+                            if self.is_used() {""} else {"| Enter <0-9> to set to DMX value | Press <Backspace> to reset DMX Value | <CTRL> + ▲ ▼ to modify DMX Value by 10 | ▲ ▼ to modify DMX Value by 1 |"}
                         }
                         
                     }
@@ -138,7 +138,7 @@ impl StatefulWidget for Tab {
                     .clone()
                     .render(remote_input_area, buf, &mut remote_ip_input.input)
             },
-            Content::DMX(dimmer_input,r_input,v_input,b_input,adr) => {
+            Content::DMX(dimmer_input,r_input,v_input,b_input,adr,ip, dmx_status) => {
                 match [dimmer_input.is_focused,r_input.is_focused,v_input.is_focused,b_input.is_focused].iter().find(|b| if **b {true} else {false}) {
                     Some(_) => {
                     },
@@ -146,7 +146,12 @@ impl StatefulWidget for Tab {
                 }
                 let vert = Layout::vertical([Constraint::Percentage(10),Constraint::Percentage(90)]);
                 let [top, bottom] = vert.areas(tab_content);
-                Paragraph::new(format!("{}",adr)).block(Block::bordered().title("DMX Adress").title_bottom("Press <Alt> + ⬆️⬇️ to change DMX adress").title_alignment(Alignment::Center)).render(top,buf );
+                let head_hor = Layout::horizontal([Constraint::Percentage(20), Constraint::Percentage(60), Constraint::Percentage(20)]);
+                let [addr_area,ip_area,active_dmx_area] = head_hor.areas(top);
+                Paragraph::new(format!("{}",adr)).block(Block::bordered().title("DMX Adress").title_bottom("| Press <Alt> + ⬆️⬇️ to change DMX adress |").title_alignment(Alignment::Center)).centered().render(addr_area,buf );
+                Paragraph::new(ip.clone()).block(Block::bordered().title("Interface Serial").title_alignment(Alignment::Center).title_position(block::Position::Top).title_bottom("| Hold <CTRL> to write in Serial field | Press <CTRL> + <Backspace> to delete char | Press <SHIFT> + <Backspace> to reset |")).centered().render(ip_area,buf );
+                Paragraph::new(dmx_status.clone()).block(Block::bordered().title_top("DMX Status").title_alignment(Alignment::Center)).centered().wrap(Wrap {trim : true}).render(active_dmx_area,buf );
+                
                 let hor = Layout::horizontal(Constraint::from_percentages([25,25,25,25]));
                 let [left,lmid,rmid,right] = hor.areas(bottom);
                 dimmer_input.clone().render(left,buf,&mut dimmer_input.value);
@@ -285,7 +290,7 @@ impl StatefulWidget for SoundList {
             .title(
                 Title::from(
                     match state.selected() {
-                        Some(_) => {format!("Playing : {}",self.currently_playing.clone())}
+                        Some(_) => {format!("{}{}",if self.currently_playing == "" {""} else {"Playing : "},self.currently_playing.clone())}
                         None => {"-".to_string()}
                     })
                 .alignment(Alignment::Right)

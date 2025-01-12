@@ -20,7 +20,7 @@ impl Default for Utilscord {
     fn default() -> Self {
         Self {
             should_quit: false,
-            quit_key_code: vec![KeyCode::Char('q'), KeyCode::Esc],
+            quit_key_code: vec![KeyCode::Char('q'), KeyCode::Char('Q'), KeyCode::Esc],
             move_key_code: vec![KeyCode::Left, KeyCode::Right, KeyCode::Up, KeyCode::Down],
             _interact_key_code: KeyCode::Enter,
             tab_manager: TabManager::default(),
@@ -51,21 +51,42 @@ impl Utilscord {
     }
 
     fn handle_dmx(&mut self) {
-        if let Content::DMX(v, r, g, b, adr) = &mut self.tab_manager.tabs[2].content {
+        if let Content::DMX(v, r, g, b, adr, serial, dmx_status) =
+            &mut self.tab_manager.tabs[2].content
+        {
             let mut dmx_value: Vec<&mut interact_mod::component::DMXInput> = vec![v, r, g, b];
             let dmx_answer = match dmx_value.iter().find(|e| e.value != 0) {
                 Some(dmx_chan) => Some(dmx_chan),
                 None => None,
             };
             if dmx_answer.is_none() {
+                *dmx_status = String::new();
                 return;
             } else {
-                match DMXSerial::open(match env::consts::OS {
-                    "Window" => "COM3",
-                    "linux" => "/dev/ttyUSB0",
-                    _ => "",
+                match DMXSerial::open(if serial == "" {
+                    match env::consts::OS {
+                        "windows" => {
+                            *serial = "COM3".into();
+                            "COM3"
+                        }
+                        "linux" => {
+                            *serial = "/dev/ttyUSB0".into();
+                            "/dev/ttyUSB0"
+                        }
+                        _ => "",
+                    }
+                } else {
+                    &serial.trim()
                 }) {
                     Ok(mut dmx) => {
+                        match dmx.check_agent() {
+                            Ok(_) => {
+                                *dmx_status = "Running".to_owned();
+                            }
+                            Err(_) => {
+                                *dmx_status = "Stopped".to_owned();
+                            }
+                        };
                         dmx_value
                             .iter_mut()
                             .enumerate()
@@ -79,18 +100,7 @@ impl Utilscord {
                                 {
                                     let mut title = String::new();
                                     for char in e.1.title.chars() {
-                                        if !matches!(
-                                            char,
-                                            '0' | '1'
-                                                | '2'
-                                                | '3'
-                                                | '4'
-                                                | '5'
-                                                | '6'
-                                                | '7'
-                                                | '8'
-                                                | '9'
-                                        ) {
+                                        if !matches!(char, '0'..='9') {
                                             title.push(char);
                                         }
                                     }
@@ -98,12 +108,20 @@ impl Utilscord {
                                 }
                                 if e.1.value == 0 {
                                 } else {
-                                    dmx.set_channel(dmx_channel_adress, e.1.value).ok();
+                                    match open_dmx::check_valid_channel(dmx_channel_adress) {
+                                        Ok(_) => {
+                                            dmx.set_channel(dmx_channel_adress, e.1.value).ok();
+                                            dmx.update().unwrap();
+                                        }
+                                        Err(e) => {
+                                            panic!("{}", e)
+                                        }
+                                    }
                                 }
                             })
                             .count();
                     }
-                    Err(_e) => {}
+                    Err(e) => *dmx_status = format!("{}", e),
                 }
             }
         }
@@ -132,93 +150,90 @@ impl Utilscord {
         if !event::poll(timeout).unwrap() {
             return;
         }
-
-        if let Event::Key(key) = event::read().unwrap() {
-            if key.kind == KeyEventKind::Press {
-                // QUIT EVENT
-                for keycode in self.quit_key_code.clone() {
-                    if (key.code, key.modifiers) == (keycode, KeyModifiers::CONTROL) {
-                        self.should_quit = true;
+        if let Ok(event) = event::read() {
+            if let Event::Key(key) = event {
+                if key.kind == KeyEventKind::Press {
+                    // QUIT EVENT
+                    for keycode in self.quit_key_code.clone() {
+                        if (key.code, key.modifiers) == (keycode, KeyModifiers::CONTROL) {
+                            self.should_quit = true;
+                        }
                     }
-                }
-                if (key.modifiers, key.code) == (KeyModifiers::CONTROL, KeyCode::Char('c')) {
-                    self.should_quit = true;
-                }
-
-                // MOVE EVENT
-                for move_key_code in self.move_key_code.clone() {
-                    if key.code == move_key_code {
-                        match &self.tab_manager.tabs[self.tab_manager.selected_tab].content {
-                            Content::MainMenu(_sound_list, _input) => {
-                                if key.modifiers == KeyModifiers::SHIFT {
-                                    match key.code {
-                                        KeyCode::Up => {
-                                            if !self.tab_manager.tabs[0].is_used() {
-                                                self.tab_manager.tabs[0].previous_content_element();
-                                            }
-                                        }
-                                        KeyCode::Down => {
-                                            if !self.tab_manager.tabs[0].is_used() {
-                                                self.tab_manager.tabs[0].next_content_element();
-                                            }
-                                        }
-                                        KeyCode::Left => {
-                                            if !self.tab_manager.tabs[0].is_used() {
-                                                self.tab_manager.previous()
-                                            }
-                                        }
-                                        KeyCode::Right => {
-                                            if !self.tab_manager.tabs[0].is_used() {
-                                                self.tab_manager.next()
-                                            }
-                                        }
-                                        _ => panic!("You should not be here!"),
-                                    }
-                                }
-                            }
-                            Content::OSC(_listening_ip_input, _remote_ip_input) => {
-                                if key.modifiers == KeyModifiers::SHIFT {
-                                    match key.code {
-                                        KeyCode::Up => {
-                                            if !self.tab_manager.tabs[1].is_used() {
-                                                self.tab_manager.tabs[1].previous_content_element()
-                                            }
-                                        }
-                                        KeyCode::Down => {
-                                            if !self.tab_manager.tabs[1].is_used() {
-                                                self.tab_manager.tabs[1].next_content_element()
-                                            }
-                                        }
-                                        KeyCode::Left => self.tab_manager.previous(),
-                                        KeyCode::Right => self.tab_manager.next(),
-                                        _ => panic!("You should not be here!"),
-                                    }
-                                }
-                            }
-                            Content::DMX(..) => match key.code {
-                                KeyCode::Right => {
+                    // MOVE EVENT
+                    for move_key_code in &mut self.move_key_code {
+                        if key.code == *move_key_code {
+                            match &self.tab_manager.get_selected_tab().content {
+                                Content::MainMenu(..) => {
                                     if key.modifiers == KeyModifiers::SHIFT {
-                                        self.tab_manager.next()
-                                    } else {
-                                        self.tab_manager.tabs[2].next_content_element()
+                                        match key.code {
+                                            KeyCode::Up => {
+                                                if !self.tab_manager.tabs[0].is_used() {
+                                                    self.tab_manager.tabs[0]
+                                                        .previous_content_element();
+                                                }
+                                            }
+                                            KeyCode::Down => {
+                                                if !self.tab_manager.tabs[0].is_used() {
+                                                    self.tab_manager.tabs[0].next_content_element();
+                                                }
+                                            }
+                                            KeyCode::Left => {
+                                                if !self.tab_manager.tabs[0].is_used() {
+                                                    self.tab_manager.previous()
+                                                }
+                                            }
+                                            KeyCode::Right => {
+                                                if !self.tab_manager.tabs[0].is_used() {
+                                                    self.tab_manager.next()
+                                                }
+                                            }
+                                            _ => (),
+                                        }
                                     }
                                 }
-                                KeyCode::Left => {
+                                Content::OSC(..) => {
                                     if key.modifiers == KeyModifiers::SHIFT {
-                                        self.tab_manager.previous()
-                                    } else {
-                                        self.tab_manager.tabs[2].previous_content_element()
+                                        match key.code {
+                                            KeyCode::Up => {
+                                                if !self.tab_manager.tabs[1].is_used() {
+                                                    self.tab_manager.tabs[1]
+                                                        .previous_content_element()
+                                                }
+                                            }
+                                            KeyCode::Down => {
+                                                if !self.tab_manager.tabs[1].is_used() {
+                                                    self.tab_manager.tabs[1].next_content_element()
+                                                }
+                                            }
+                                            KeyCode::Left => self.tab_manager.previous(),
+                                            KeyCode::Right => self.tab_manager.next(),
+                                            _ => (),
+                                        }
                                     }
                                 }
-                                _ => {}
-                            },
+                                Content::DMX(..) => match key.code {
+                                    KeyCode::Right => {
+                                        if key.modifiers == KeyModifiers::SHIFT {
+                                            self.tab_manager.next()
+                                        } else {
+                                            self.tab_manager.tabs[2].next_content_element()
+                                        }
+                                    }
+                                    KeyCode::Left => {
+                                        if key.modifiers == KeyModifiers::SHIFT {
+                                            self.tab_manager.previous()
+                                        } else {
+                                            self.tab_manager.tabs[2].previous_content_element()
+                                        }
+                                    }
+                                    _ => (),
+                                },
+                            }
                         }
                     }
                 }
-
-                // INTERACT EVENT
-                self.tab_manager.interact(key.code, key.modifiers);
             }
+            self.tab_manager.handle_event(event);
         }
     }
 }

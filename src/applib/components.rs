@@ -1,11 +1,11 @@
 #[path = "render.rs"]
 mod render;
-use clipboard;
 use clipboard::windows_clipboard::WindowsClipboardContext;
 use clipboard::ClipboardProvider;
 use lofty::file::AudioFile;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
+use rodio::Source;
 use rodio::{Decoder, OutputStream, Sink};
 use rosc::OscPacket;
 use std::fs::{self, File};
@@ -60,7 +60,7 @@ impl Tab {
                     false
                 }
             }
-            Content::DMX(_, _, _, _, _) => false,
+            Content::DMX(..) => false,
         }
     }
 
@@ -77,7 +77,7 @@ impl Tab {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
-            Content::DMX(dimmer, r, v, b, _) => {
+            Content::DMX(dimmer, r, v, b, _, _, _) => {
                 let mut vec = vec![dimmer, r, v, b];
                 let vecsize = vec.len();
                 let (index, _dmx_input) = match vec.iter().enumerate().find(|e| e.1.is_focused) {
@@ -103,7 +103,7 @@ impl Tab {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
-            Content::DMX(dimmer, r, v, b, _) => {
+            Content::DMX(dimmer, r, v, b, _, _, _) => {
                 let mut vec = vec![dimmer, r, v, b];
                 let vecsize = vec.len();
                 let (index, _dmx_input) = match vec.iter().enumerate().find(|e| e.1.is_focused) {
@@ -121,7 +121,15 @@ impl Tab {
 pub enum Content {
     MainMenu(SoundList, Input),
     OSC(IPInput, IPInput),
-    DMX(DMXInput, DMXInput, DMXInput, DMXInput, Box<u8>),
+    DMX(
+        DMXInput,
+        DMXInput,
+        DMXInput,
+        DMXInput,
+        Box<usize>,
+        String,
+        String,
+    ),
 }
 
 #[derive(Debug, Clone)]
@@ -159,7 +167,7 @@ impl Content {
         match self {
             Content::MainMenu(_sound_list, _input) => "Sound Bank",
             Content::OSC(_listening_ip_input, _remote_ip_input) => "OSC",
-            Content::DMX(_, _, _, _, _) => "DMX",
+            Content::DMX(_, _, _, _, _, _, _) => "DMX",
         }
     }
 }
@@ -399,13 +407,15 @@ impl Clone for Content {
             Content::OSC(listening_ip_input, remote_ip_input) => {
                 return Content::OSC(listening_ip_input.clone(), remote_ip_input.clone())
             }
-            Content::DMX(dimmer_input, r_input, v_input, b_input, dmx_adress) => {
+            Content::DMX(dimmer_input, r_input, v_input, b_input, dmx_adress, ip, dmx_status) => {
                 return Content::DMX(
                     dimmer_input.clone(),
                     r_input.clone(),
                     v_input.clone(),
                     b_input.clone(),
                     dmx_adress.clone(),
+                    ip.clone(),
+                    dmx_status.clone(),
                 )
             }
         }
@@ -513,8 +523,14 @@ impl SoundList {
             ));
         };
     }
-
-    pub fn play(&mut self, receiver: Receiver<MusicState>, sender: Sender<f32>, index: usize) {
+    pub fn play(
+        &mut self,
+        receiver: Receiver<MusicState>,
+        sender: Sender<f32>,
+        index: usize,
+        fade_in: Option<Duration>,
+        fade_out: Option<Duration>,
+    ) {
         // local index
         // Offset Volume on each song
         let local_volume = self.sound_files[index].local_volume;
@@ -534,7 +550,20 @@ impl SoundList {
                 .unwrap(),
             );
             let source = Decoder::new(file).unwrap();
-            sink.append(source);
+            match (fade_in, fade_out) {
+                (Some(fade_in), Some(fade_out)) => {
+                    sink.append(source.fade_in(fade_in).fade_out(fade_out))
+                }
+                (Some(fade_in), None) => {
+                    sink.append(source.fade_in(fade_in));
+                }
+                (None, Some(fade_out)) => {
+                    sink.append(source.fade_out(fade_out));
+                }
+                _ => {
+                    sink.append(source);
+                }
+            }
             sink.try_seek(trim_in_duration).unwrap();
             let mut gv: f32 = general_volume;
             let mut lv: f32 = local_volume;
