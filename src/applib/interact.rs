@@ -5,6 +5,8 @@ use component::IPInput;
 use component::MusicState;
 use component::{Content, Input, SoundList, Tab};
 use core::panic;
+use open_dmx::DMXSerial;
+use open_dmx::DMX_CHANNELS;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::crossterm::event::KeyEventKind;
 use ratatui::crossterm::event::MouseEvent;
@@ -619,6 +621,7 @@ impl TabManager {
                                 }
                             })
                             .count();
+                        self.update_dmx();
                     }
                     KeyCode::Down => {
                         if key.modifiers == KeyModifiers::ALT {
@@ -641,6 +644,7 @@ impl TabManager {
                                 }
                             })
                             .count();
+                        self.update_dmx();
                     }
                     KeyCode::Char(char) if key.modifiers.is_empty() => {
                         let mut dmx_faders = vec![dimmer, r, v, b];
@@ -675,9 +679,11 @@ impl TabManager {
                             });
                             return;
                         }
+                        self.update_dmx();
                     }
                     KeyCode::Char(char) if key.modifiers == KeyModifiers::CONTROL => {
                         serial.push(char);
+                        self.update_dmx();
                         return;
                     }
                     KeyCode::Backspace => {
@@ -695,6 +701,7 @@ impl TabManager {
                             .find(|dmx_fader| dmx_fader.is_focused)
                             .unwrap();
                         focused.value = 0;
+                        self.update_dmx();
                         return;
                     }
                     _ => {}
@@ -708,6 +715,62 @@ impl TabManager {
     fn handle_event_focus_lost(&mut self) {}
     fn handle_event_paste(&mut self, _content: String) {}
     fn handle_event_resize(&mut self, _x: u16, _y: u16) {}
+
+    fn update_dmx(&mut self) {
+        if let Content::DMX(dimmer, r, g, b, adr, serial, dmx_status) =
+            &mut self.tabs[self.selected_tab].content
+        {
+            match DMXSerial::open(if serial == "" {
+                match env::consts::OS {
+                    "windows" => {
+                        *serial = "COM3".into();
+                        "COM3"
+                    }
+                    "linux" => {
+                        *serial = "/dev/ttyUSB0".into();
+                        "/dev/ttyUSB0"
+                    }
+                    _ => "",
+                }
+            } else {
+                &serial.trim()
+            }) {
+                Ok(mut dmx_chan) => {
+                    match dmx_chan.check_agent() {
+                        Ok(_) => *dmx_status = "Running".to_owned(),
+                        Err(_) => *dmx_status = "Stopped".to_owned(),
+                    };
+                    let mut dmxs = vec![dimmer, r, g, b];
+                    dmxs.iter_mut().enumerate().for_each(|(id, dmx)| {
+                        let dmx_channel_adress: usize =
+                            id.wrapping_add(**adr as usize).clamp(0, DMX_CHANNELS);
+                        if !dmx
+                            .clone()
+                            .title
+                            .ends_with(&format!("{}", dmx_channel_adress))
+                        {
+                            let mut title = String::new();
+                            for char in dmx.title.chars() {
+                                if !matches!(char, '0'..='9') {
+                                    title.push(char);
+                                }
+                            }
+                            dmx.title = format!("{}{}", title, dmx_channel_adress);
+                        }
+                        match open_dmx::check_valid_channel(dmx_channel_adress) {
+                            Ok(_) => {
+                                if let Ok(_) = dmx_chan.set_channel(dmx_channel_adress, dmx.value) {
+                                    dmx_chan.update().unwrap();
+                                }
+                            }
+                            Err(e) => panic!("{}", e),
+                        }
+                    });
+                }
+                Err(e) => *dmx_status = format!("{}", e),
+            }
+        }
+    }
 }
 
 impl Default for TabManager {

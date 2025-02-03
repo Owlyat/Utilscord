@@ -44,87 +44,9 @@ impl Utilscord {
                 .unwrap();
             self.handle_events();
             self.handle_osc();
-            self.handle_dmx();
         }
 
         ratatui::restore();
-    }
-
-    fn handle_dmx(&mut self) {
-        if let Content::DMX(v, r, g, b, adr, serial, dmx_status) =
-            &mut self.tab_manager.tabs[2].content
-        {
-            let mut dmx_value: Vec<&mut interact_mod::component::DMXInput> = vec![v, r, g, b];
-            let dmx_answer = match dmx_value.iter().find(|e| e.value != 0) {
-                Some(dmx_chan) => Some(dmx_chan),
-                None => None,
-            };
-            if dmx_answer.is_none() {
-                *dmx_status = String::new();
-                return;
-            } else {
-                match DMXSerial::open(if serial == "" {
-                    match env::consts::OS {
-                        "windows" => {
-                            *serial = "COM3".into();
-                            "COM3"
-                        }
-                        "linux" => {
-                            *serial = "/dev/ttyUSB0".into();
-                            "/dev/ttyUSB0"
-                        }
-                        _ => "",
-                    }
-                } else {
-                    &serial.trim()
-                }) {
-                    Ok(mut dmx) => {
-                        match dmx.check_agent() {
-                            Ok(_) => {
-                                *dmx_status = "Running".to_owned();
-                            }
-                            Err(_) => {
-                                *dmx_status = "Stopped".to_owned();
-                            }
-                        };
-                        dmx_value
-                            .iter_mut()
-                            .enumerate()
-                            .map(|e| {
-                                let dmx_channel_adress: usize = e.0.wrapping_add(**adr as usize);
-                                if !e
-                                    .1
-                                    .title
-                                    .clone()
-                                    .ends_with(&format!("{}", dmx_channel_adress))
-                                {
-                                    let mut title = String::new();
-                                    for char in e.1.title.chars() {
-                                        if !matches!(char, '0'..='9') {
-                                            title.push(char);
-                                        }
-                                    }
-                                    e.1.title = format!("{}{}", title, dmx_channel_adress);
-                                }
-                                if e.1.value == 0 {
-                                } else {
-                                    match open_dmx::check_valid_channel(dmx_channel_adress) {
-                                        Ok(_) => {
-                                            dmx.set_channel(dmx_channel_adress, e.1.value).ok();
-                                            dmx.update().unwrap();
-                                        }
-                                        Err(e) => {
-                                            panic!("{}", e)
-                                        }
-                                    }
-                                }
-                            })
-                            .count();
-                    }
-                    Err(e) => *dmx_status = format!("{}", e),
-                }
-            }
-        }
     }
 
     fn handle_osc(&mut self) {
