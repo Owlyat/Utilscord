@@ -26,6 +26,7 @@ pub struct TabManager {
     pub sender: Option<Sender<MusicState>>,
     pub receiver: Option<Receiver<f32>>,
     pub osc_receiver: Option<Receiver<OscPacket>>,
+    pub dmx: Option<DMXSerial>,
 }
 
 impl TabManager {
@@ -86,6 +87,7 @@ impl TabManager {
             sender: None,
             receiver: None,
             osc_receiver: None,
+            dmx: None,
         };
         //CLI
         if args.len() > 1 {
@@ -596,22 +598,22 @@ impl TabManager {
                     _ => (),
                 }
             }
-            Content::DMX(dimmer, r, v, b, adr, serial, _dmx_status)
+            Content::DMX(fader1, fader2, fader3, fader4, adr, serial, _dmx_status)
                 if key.kind == KeyEventKind::Press =>
             {
                 match key.code {
                     KeyCode::Up => {
-                        if key.modifiers == KeyModifiers::ALT {
-                            if **adr != open_dmx::DMX_CHANNELS {
-                                **adr = adr.saturating_add(1);
+                        if self.dmx.is_some() {
+                            if key.modifiers == KeyModifiers::ALT {
+                                if **adr != open_dmx::DMX_CHANNELS - 3 {
+                                    **adr = adr.saturating_add(1);
+                                    self.update_dmx();
+                                    return;
+                                }
                                 return;
                             }
-                            return;
-                        }
-                        let mut dmx_faders = vec![dimmer, r, v, b];
-                        dmx_faders
-                            .iter_mut()
-                            .map(|dmx_fader| {
+                            let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
+                            dmx_faders.iter_mut().for_each(|dmx_fader| {
                                 if dmx_fader.is_focused {
                                     if key.modifiers == KeyModifiers::CONTROL {
                                         dmx_fader.increment(10);
@@ -619,22 +621,23 @@ impl TabManager {
                                         dmx_fader.increment(1);
                                     }
                                 }
-                            })
-                            .count();
-                        self.update_dmx();
-                    }
-                    KeyCode::Down => {
-                        if key.modifiers == KeyModifiers::ALT {
-                            if **adr != 1 {
-                                **adr = adr.saturating_sub(1);
-                                return;
-                            }
+                            });
+                            self.update_dmx();
                             return;
                         }
-                        let mut dmx_faders = vec![dimmer, r, v, b];
-                        dmx_faders
-                            .iter_mut()
-                            .map(|dmx_fader| {
+                    }
+                    KeyCode::Down => {
+                        if self.dmx.is_some() {
+                            if key.modifiers == KeyModifiers::ALT {
+                                if **adr != 1 {
+                                    **adr = adr.saturating_sub(1);
+                                    self.update_dmx();
+                                    return;
+                                }
+                                return;
+                            }
+                            let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
+                            dmx_faders.iter_mut().for_each(|dmx_fader| {
                                 if dmx_fader.is_focused {
                                     if key.modifiers == KeyModifiers::CONTROL {
                                         dmx_fader.decrement(10);
@@ -642,67 +645,80 @@ impl TabManager {
                                         dmx_fader.decrement(1);
                                     }
                                 }
-                            })
-                            .count();
-                        self.update_dmx();
+                            });
+                            self.update_dmx();
+                            return;
+                        }
                     }
-                    KeyCode::Char(char) if key.modifiers.is_empty() => {
-                        let mut dmx_faders = vec![dimmer, r, v, b];
+                    KeyCode::Char(char) => {
+                        if self.dmx.is_some() {
+                            if key.modifiers == KeyModifiers::NONE {
+                                let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
 
-                        if matches!(char, '0'..='9') {
+                                if matches!(char, '0'..='9') {
+                                    // Have to check if this works correctly
+                                    dmx_faders
+                                        .iter_mut()
+                                        .find(|d| d.is_focused)
+                                        .iter_mut()
+                                        .for_each(|d| {
+                                            d.value = format!("{}{}", d.value, char)
+                                                .parse::<u8>()
+                                                .unwrap_or(255);
+                                        });
+                                    self.update_dmx();
+                                    return;
+                                } else if matches!(char, 'f' | 'F') {
+                                    dmx_faders.iter_mut().for_each(|dmx_fader| {
+                                        if dmx_fader.is_focused {
+                                            dmx_fader.value = 255;
+                                        }
+                                    });
+                                    return;
+                                } else if matches!(char, '.' | 'r' | 'R') {
+                                    dmx_faders.iter_mut().for_each(|dmx_fader| {
+                                        if dmx_fader.is_focused {
+                                            dmx_fader.value = 0;
+                                        }
+                                    });
+                                    return;
+                                }
+                                self.update_dmx();
+                                return;
+                            }
+                        }
+                        if self.dmx.is_none() {
+                            serial.push(char);
+                            return;
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        if self.dmx.is_none() {
+                            match key.modifiers {
+                                KeyModifiers::CONTROL => {
+                                    serial.clear();
+                                }
+                                _ => {
+                                    serial.pop();
+                                }
+                            }
+                            return;
+                        }
+                        // If dmx connection :
+                        if let Some(_) = self.dmx {
+                            if key.modifiers == KeyModifiers::ALT {
+                                **adr = 1;
+                                return;
+                            }
+                            let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
                             let focused = dmx_faders
                                 .iter_mut()
                                 .find(|dmx_fader| dmx_fader.is_focused)
                                 .unwrap();
-                            match format!("{}{}", focused.value, char).parse::<u8>() {
-                                Ok(v) => {
-                                    focused.value = v;
-                                    return;
-                                }
-                                Err(_e) => {
-                                    focused.value = 255;
-                                    return;
-                                }
-                            }
-                        } else if matches!(char, 'f' | 'F') {
-                            dmx_faders.iter_mut().for_each(|dmx_fader| {
-                                if dmx_fader.is_focused {
-                                    dmx_fader.value = 255;
-                                }
-                            });
-                            return;
-                        } else if matches!(char, '.' | 'r' | 'R') {
-                            dmx_faders.iter_mut().for_each(|dmx_fader| {
-                                if dmx_fader.is_focused {
-                                    dmx_fader.value = 0;
-                                }
-                            });
+                            focused.value = 0;
+                            self.update_dmx();
                             return;
                         }
-                        self.update_dmx();
-                    }
-                    KeyCode::Char(char) if key.modifiers == KeyModifiers::CONTROL => {
-                        serial.push(char);
-                        self.update_dmx();
-                        return;
-                    }
-                    KeyCode::Backspace => {
-                        if key.modifiers == KeyModifiers::CONTROL {
-                            serial.pop();
-                            return;
-                        }
-                        if key.modifiers == KeyModifiers::SHIFT {
-                            serial.clear();
-                            return;
-                        }
-                        let mut dmx_faders = vec![dimmer, r, v, b];
-                        let focused = dmx_faders
-                            .iter_mut()
-                            .find(|dmx_fader| dmx_fader.is_focused)
-                            .unwrap();
-                        focused.value = 0;
-                        self.update_dmx();
-                        return;
                     }
                     _ => {}
                 }
@@ -717,57 +733,24 @@ impl TabManager {
     fn handle_event_resize(&mut self, _x: u16, _y: u16) {}
 
     fn update_dmx(&mut self) {
-        if let Content::DMX(dimmer, r, g, b, adr, serial, dmx_status) =
+        if let Content::DMX(dimmer, r, g, b, adr, _serial, dmx_status) =
             &mut self.tabs[self.selected_tab].content
         {
-            match DMXSerial::open(if serial == "" {
-                match env::consts::OS {
-                    "windows" => {
-                        *serial = "COM3".into();
-                        "COM3"
-                    }
-                    "linux" => {
-                        *serial = "/dev/ttyUSB0".into();
-                        "/dev/ttyUSB0"
-                    }
-                    _ => "",
-                }
-            } else {
-                &serial.trim()
-            }) {
-                Ok(mut dmx_chan) => {
-                    match dmx_chan.check_agent() {
-                        Ok(_) => *dmx_status = "Running".to_owned(),
-                        Err(_) => *dmx_status = "Stopped".to_owned(),
-                    };
-                    let mut dmxs = vec![dimmer, r, g, b];
-                    dmxs.iter_mut().enumerate().for_each(|(id, dmx)| {
-                        let dmx_channel_adress: usize =
-                            id.wrapping_add(**adr as usize).clamp(0, DMX_CHANNELS);
-                        if !dmx
-                            .clone()
-                            .title
-                            .ends_with(&format!("{}", dmx_channel_adress))
-                        {
-                            let mut title = String::new();
-                            for char in dmx.title.chars() {
-                                if !matches!(char, '0'..='9') {
-                                    title.push(char);
-                                }
+            if let Some(dmx_chan) = &mut self.dmx {
+                let mut dmxs = vec![dimmer, r, g, b];
+                dmxs.iter_mut().enumerate().for_each(|(id, dmx)| {
+                    let dmx_channel_adress: usize = adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
+                    match open_dmx::check_valid_channel(dmx_channel_adress) {
+                        Ok(_) => {
+                            if let Ok(_) = dmx_chan.set_channel(dmx_channel_adress, dmx.value) {
+                                // DMX SUCESSFULY SET TO VALUE
+                                *dmx_status =
+                                    format!("set {} to {}", dmx_channel_adress, dmx.value);
                             }
-                            dmx.title = format!("{}{}", title, dmx_channel_adress);
                         }
-                        match open_dmx::check_valid_channel(dmx_channel_adress) {
-                            Ok(_) => {
-                                if let Ok(_) = dmx_chan.set_channel(dmx_channel_adress, dmx.value) {
-                                    dmx_chan.update().unwrap();
-                                }
-                            }
-                            Err(e) => panic!("{}", e),
-                        }
-                    });
-                }
-                Err(e) => *dmx_status = format!("{}", e),
+                        Err(e) => *dmx_status = format!("{}", e),
+                    }
+                });
             }
         }
     }

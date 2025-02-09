@@ -1,4 +1,4 @@
-use open_dmx::DMXSerial;
+use open_dmx::{DMXSerial, DMX_CHANNELS};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 use std::env;
@@ -31,7 +31,7 @@ impl Default for Utilscord {
 impl Utilscord {
     pub fn run(&mut self) {
         let mut terminal = ratatui::init();
-
+        self.open_dmx();
         while !self.should_quit {
             terminal
                 .draw(|frame: &mut Frame| {
@@ -44,9 +44,124 @@ impl Utilscord {
                 .unwrap();
             self.handle_events();
             self.handle_osc();
+            self.check_dmx_state();
         }
 
         ratatui::restore();
+    }
+    fn open_dmx(&mut self) {
+        if let Content::DMX(_dimmer, _r, _g, _b, _adr, serial, dmx_status) =
+            &mut self.tab_manager.tabs[2].content
+        {
+            match DMXSerial::open(if serial == "" {
+                match env::consts::OS {
+                    "windows" => {
+                        *serial = "COM3".into();
+                        "COM3"
+                    }
+                    "linux" => {
+                        *serial = "/dev/ttyUSB0".into();
+                        "/dev/ttyUSB0"
+                    }
+                    _ => "",
+                }
+            } else {
+                &serial.trim()
+            }) {
+                Ok(dmx_chan) => {
+                    self.tab_manager.dmx = Some(dmx_chan);
+                }
+                Err(e) => {
+                    *dmx_status = format!(
+                        "Error while opening default {} serial : {}",
+                        if serial == "COM3" { "Windows" } else { "Linux" },
+                        e
+                    )
+                }
+            }
+        }
+    }
+    fn check_dmx_state(&mut self) {
+        if let Content::DMX(dimmer, r, g, b, adr, serial, dmx_status) =
+            &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
+        {
+            if let Some(dmx) = &mut self.tab_manager.dmx {
+                let mut dmxs = [dimmer, r, g, b];
+                dmxs.iter_mut().enumerate().for_each(|(id, chan)| {
+                    let dmx_chan_adr = adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
+                    if !chan.clone().title.ends_with(&dmx_chan_adr.to_string()) {
+                        let mut title = String::new();
+                        for char in chan.title.chars() {
+                            if !matches!(char, '0'..='9') {
+                                title.push(char);
+                            }
+                        }
+                        chan.title = format!("Fader : {}", dmx_chan_adr);
+                    }
+                });
+
+                match dmx.check_agent() {
+                    Ok(_) => {
+                        *dmx_status = "Running".to_string();
+                    }
+                    Err(e) => {
+                        if let Content::DMX(dimmer, r, g, b, adr, _serial, dmx_status) =
+                            &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
+                        {
+                            *dmx_status = format!("{}", e);
+                            match DMXSerial::reopen(dmx) {
+                                Ok(_) => {
+                                    let mut dmxs = [dimmer, r, g, b];
+                                    dmxs.iter_mut().enumerate().for_each(|(id, chan)| {
+                                        let dmx_chan_adr =
+                                            adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
+                                        if !chan.clone().title.ends_with(&dmx_chan_adr.to_string())
+                                        {
+                                            let mut title = String::new();
+                                            for char in chan.title.chars() {
+                                                if !matches!(char, '0'..='9') {
+                                                    title.push(char);
+                                                }
+                                            }
+                                            chan.title = format!("Fader : {}", dmx_chan_adr);
+                                        }
+                                    });
+                                    *dmx_status = "Running".to_string();
+                                }
+                                Err(e) => {
+                                    *dmx_status = format!("{}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                if !matches!(serial.as_str(), "COM3" | "/dev/ttyUSB0") {
+                    match DMXSerial::open(serial) {
+                        Ok(dmx) => {
+                            self.tab_manager.dmx = Some(dmx);
+                        }
+                        Err(e) => {
+                            *dmx_status =
+                                format!("Error while opening from Serial {} : {}", serial, e);
+                        }
+                    }
+                } else {
+                    match DMXSerial::open(serial) {
+                        Ok(dmx) => {
+                            self.tab_manager.dmx = Some(dmx);
+                        }
+                        Err(e) => {
+                            *dmx_status = format!(
+                                "Error while opening from default {} Serial : {}",
+                                if serial == "COM3" { "Windows" } else { "Linux" },
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn handle_osc(&mut self) {
