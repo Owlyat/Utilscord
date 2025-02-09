@@ -54,13 +54,13 @@ impl TabManager {
                     ),
                 },
                 Tab {
-                    content: Content::OSC(
+                    content: Content::Osc(
                         IPInput::new("Host IP:PORT".to_owned()),
                         IPInput::new("Host IP:PORT".to_owned()),
                     ),
                 },
                 Tab {
-                    content: Content::DMX(
+                    content: Content::Dmx(
                         DMXInput {
                             title: "Dimmer".to_owned(),
                             ..Default::default()
@@ -114,55 +114,48 @@ impl TabManager {
         if osc_path[2] == "LocalVolume" {
             if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
                 for arg in osc_message.args.clone() {
-                    match arg.float() {
-                        Some(new_volume) => {
-                            let index = if osc_path[3] == "Selected" {
-                                if self.selected_tab != 0 {
-                                    self.selected_tab = 0;
-                                }
-                                if input.is_selected {
-                                    input.is_selected = false;
-                                }
-                                if !soundlist.selected {
-                                    soundlist.selected = true;
-                                }
-                                let value = match soundlist.state.selected() {
-                                    Some(v) => v,
-                                    None => {
-                                        soundlist.prompt_selection();
-                                        soundlist.state.selected().unwrap()
-                                    }
-                                };
-                                value
-                            } else {
-                                match osc_path[3].parse::<usize>() {
-                                    Ok(number) => {
-                                        if soundlist.sound_files.len() <= number {
-                                            0
-                                        } else {
-                                            number
-                                        }
-                                    }
-                                    Err(_e) => 0,
-                                }
-                            };
+                    if let Some(new_volume) = arg.float() {
+                        let index = if osc_path[3] == "Selected" {
+                            if self.selected_tab != 0 {
+                                self.selected_tab = 0;
+                            }
+                            if input.is_selected {
+                                input.is_selected = false;
+                            }
+                            if !soundlist.selected {
+                                soundlist.selected = true;
+                            }
 
-                            match soundlist.modify_local_volume(index, new_volume) {
-                                Ok(_) => {}
-                                Err(_) => {}
-                            };
-                            if soundlist.currently_playing == soundlist.sound_files[index].name {
-                                if let Some(sender) = &mut self.sender {
-                                    // Send local volume
-                                    match sender.send(component::MusicState::LocalVolumeChanged(
-                                        soundlist.get_local_volume_of_item_index(index),
-                                    )) {
-                                        _ => {}
-                                    }
+                            match soundlist.state.selected() {
+                                Some(v) => v,
+                                None => {
+                                    soundlist.prompt_selection();
+                                    soundlist.state.selected().unwrap()
                                 }
                             }
+                        } else {
+                            match osc_path[3].parse::<usize>() {
+                                Ok(number) => {
+                                    if soundlist.sound_files.len() <= number {
+                                        0
+                                    } else {
+                                        number
+                                    }
+                                }
+                                Err(_e) => 0,
+                            }
+                        };
+
+                        if soundlist.modify_local_volume(index, new_volume).is_ok() {};
+                        if soundlist.currently_playing == soundlist.sound_files[index].name {
+                            if let Some(sender) = &mut self.sender {
+                                // Send local volume
+                                let _ = sender.send(component::MusicState::LocalVolumeChanged(
+                                    soundlist.get_local_volume_of_item_index(index),
+                                ));
+                                {}
+                            }
                         }
-                        None => {}
                     }
                 }
             }
@@ -170,18 +163,13 @@ impl TabManager {
         if osc_path[2] == "Volume" {
             if let Content::MainMenu(soundlist, _input) = &mut self.tabs[0].content {
                 for arg in osc_message.args.clone() {
-                    match arg.float() {
-                        Some(v) => {
-                            soundlist.volume = v;
-                            if let Some(sender) = &mut self.sender {
-                                match sender
-                                    .send(component::MusicState::VolumeChanged(soundlist.volume))
-                                {
-                                    _ => {}
-                                };
-                            }
+                    if let Some(v) = arg.float() {
+                        soundlist.volume = v;
+                        if let Some(sender) = &mut self.sender {
+                            let _ =
+                                sender.send(component::MusicState::VolumeChanged(soundlist.volume));
+                            {};
                         }
-                        None => {}
                     }
                 }
             }
@@ -190,9 +178,8 @@ impl TabManager {
             if let Content::MainMenu(soundlist, _input) = &mut self.tabs[0].content {
                 soundlist.currently_playing.clear();
                 if let Some(x) = &mut self.sender {
-                    match x.send(component::MusicState::Remove) {
-                        _ => {}
-                    };
+                    let _ = x.send(component::MusicState::Remove);
+                    {};
                 }
             }
         }
@@ -208,7 +195,8 @@ impl TabManager {
                     if !soundlist.selected {
                         soundlist.selected = true;
                     }
-                    let value = match soundlist.state.selected() {
+
+                    match soundlist.state.selected() {
                         Some(_) => {
                             soundlist.next_song();
                             soundlist.state.selected().unwrap()
@@ -217,8 +205,7 @@ impl TabManager {
                             soundlist.prompt_selection();
                             soundlist.state.selected().unwrap()
                         }
-                    };
-                    value
+                    }
                 } else if osc_path[3] == "Previous" {
                     if self.selected_tab != 0 {
                         self.selected_tab = 0;
@@ -229,7 +216,8 @@ impl TabManager {
                     if !soundlist.selected {
                         soundlist.selected = true;
                     }
-                    let value = match soundlist.state.selected() {
+
+                    match soundlist.state.selected() {
                         Some(_) => {
                             soundlist.previous_song();
                             soundlist.state.selected().unwrap()
@@ -238,8 +226,7 @@ impl TabManager {
                             soundlist.prompt_selection();
                             soundlist.state.selected().unwrap()
                         }
-                    };
-                    value
+                    }
                 } else {
                     match osc_path[3].parse::<usize>() {
                         Ok(number) => {
@@ -252,13 +239,12 @@ impl TabManager {
                         Err(_e) => 0,
                     }
                 };
-                if soundlist.sound_files.len() == 0 {
+                if soundlist.sound_files.is_empty() {
                     return;
                 }
                 if let Some(sender) = &mut self.sender {
-                    match sender.send(component::MusicState::Remove) {
-                        _ => {}
-                    };
+                    let _ = sender.send(component::MusicState::Remove);
+                    {};
                 }
                 soundlist.currently_playing.clear();
                 let (mts, wtr) = mpsc::channel();
@@ -329,11 +315,12 @@ impl TabManager {
                                     {
                                         if let Some(sender) = &mut self.sender {
                                             // Send local volume
-                                            if let Ok(_) = sender.send(
-                                                component::MusicState::LocalVolumeChanged(
+                                            if sender
+                                                .send(component::MusicState::LocalVolumeChanged(
                                                     sound_list.get_local_volume_of_selected_item(),
-                                                ),
-                                            ) {
+                                                ))
+                                                .is_ok()
+                                            {
                                                 return;
                                             }
                                         }
@@ -359,11 +346,12 @@ impl TabManager {
                                         == sound_list.sound_files[index].name
                                     {
                                         if let Some(sender) = &mut self.sender {
-                                            if let Ok(_) = sender.send(
-                                                component::MusicState::LocalVolumeChanged(
+                                            if sender
+                                                .send(component::MusicState::LocalVolumeChanged(
                                                     sound_list.get_local_volume_of_selected_item(),
-                                                ),
-                                            ) {
+                                                ))
+                                                .is_ok()
+                                            {
                                                 return;
                                             }
                                         }
@@ -375,9 +363,8 @@ impl TabManager {
                                 }
                                 KeyCode::Enter if key.kind == KeyEventKind::Press => {
                                     if let Some(sender) = &mut self.sender {
-                                        match sender.send(component::MusicState::Remove) {
-                                            _ => {}
-                                        };
+                                        let _ = sender.send(component::MusicState::Remove);
+                                        {};
                                     }
                                     sound_list.currently_playing.clear();
                                     let (mts, wtr) = mpsc::channel();
@@ -420,7 +407,7 @@ impl TabManager {
                                 KeyCode::Backspace | KeyCode::Delete => {
                                     sound_list.currently_playing.clear();
                                     if let Some(x) = &mut self.sender {
-                                        if let Ok(_) = x.send(component::MusicState::Remove) {
+                                        if x.send(component::MusicState::Remove).is_ok() {
                                             return;
                                         }
                                     }
@@ -428,10 +415,8 @@ impl TabManager {
 
                                 KeyCode::Char(' ') => {
                                     if let Some(sender) = &mut self.sender {
-                                        if let Ok(_) =
-                                            sender.send(component::MusicState::PlayResume)
-                                        {
-                                        }
+                                        let _ =
+                                            sender.send(component::MusicState::PlayResume).is_ok();
                                         return;
                                     }
                                 }
@@ -440,11 +425,10 @@ impl TabManager {
                                     sound_list.volume += 0.01;
                                     sound_list.volume = sound_list.volume.clamp(0.0, 2.0);
                                     if let Some(sender) = &mut self.sender {
-                                        match sender.send(component::MusicState::VolumeChanged(
+                                        let _ = sender.send(component::MusicState::VolumeChanged(
                                             sound_list.volume,
-                                        )) {
-                                            _ => return,
-                                        };
+                                        ));
+                                        return;
                                     }
                                 }
 
@@ -452,9 +436,12 @@ impl TabManager {
                                     sound_list.volume -= 0.01;
                                     sound_list.volume = sound_list.volume.clamp(0.0, 2.0);
                                     if let Some(sender) = &mut self.sender {
-                                        if let Ok(_) = sender.send(
-                                            component::MusicState::VolumeChanged(sound_list.volume),
-                                        ) {
+                                        if sender
+                                            .send(component::MusicState::VolumeChanged(
+                                                sound_list.volume,
+                                            ))
+                                            .is_ok()
+                                        {
                                             return;
                                         };
                                     }
@@ -466,14 +453,13 @@ impl TabManager {
                                 }
 
                                 KeyCode::Char(c) => {
-                                    if matches!(c, '0'..='9') {
+                                    if c.is_ascii_digit() {
                                         let index = c.to_string().parse::<usize>().unwrap();
                                         sound_list.select_song(index);
                                         if key.modifiers == KeyModifiers::CONTROL {
                                             if let Some(sender) = &mut self.sender {
-                                                match sender.send(component::MusicState::Remove) {
-                                                    _ => {}
-                                                };
+                                                let _ = sender.send(component::MusicState::Remove);
+                                                {};
                                             }
                                             sound_list.currently_playing.clear();
                                             let (mts, wtr) = mpsc::channel();
@@ -531,11 +517,10 @@ impl TabManager {
                     }
                     if sound_list.editingfades {
                         fade_tab(sound_list, key.code, key.modifiers);
-                        return;
                     }
                 }
             }
-            Content::OSC(listening_ip_input, remote_ip_input)
+            Content::Osc(listening_ip_input, remote_ip_input)
                 if key.kind == KeyEventKind::Press =>
             {
                 let inputs = vec![listening_ip_input, remote_ip_input];
@@ -561,7 +546,6 @@ impl TabManager {
                                 input.enter_char(char)
                             }
                         }
-                        return;
                     }
                     KeyCode::Backspace => {
                         for input in inputs {
@@ -598,7 +582,7 @@ impl TabManager {
                     _ => (),
                 }
             }
-            Content::DMX(fader1, fader2, fader3, fader4, adr, serial, _dmx_status)
+            Content::Dmx(fader1, fader2, fader3, fader4, adr, serial, _dmx_status)
                 if key.kind == KeyEventKind::Press =>
             {
                 match key.code {
@@ -612,7 +596,7 @@ impl TabManager {
                                 }
                                 return;
                             }
-                            let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
+                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
                             dmx_faders.iter_mut().for_each(|dmx_fader| {
                                 if dmx_fader.is_focused {
                                     if key.modifiers == KeyModifiers::CONTROL {
@@ -623,7 +607,6 @@ impl TabManager {
                                 }
                             });
                             self.update_dmx();
-                            return;
                         }
                     }
                     KeyCode::Down => {
@@ -636,7 +619,7 @@ impl TabManager {
                                 }
                                 return;
                             }
-                            let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
+                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
                             dmx_faders.iter_mut().for_each(|dmx_fader| {
                                 if dmx_fader.is_focused {
                                     if key.modifiers == KeyModifiers::CONTROL {
@@ -647,49 +630,45 @@ impl TabManager {
                                 }
                             });
                             self.update_dmx();
-                            return;
                         }
                     }
                     KeyCode::Char(char) => {
-                        if self.dmx.is_some() {
-                            if key.modifiers == KeyModifiers::NONE {
-                                let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
+                        if self.dmx.is_some() && key.modifiers == KeyModifiers::NONE {
+                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
 
-                                if matches!(char, '0'..='9') {
-                                    // Have to check if this works correctly
-                                    dmx_faders
-                                        .iter_mut()
-                                        .find(|d| d.is_focused)
-                                        .iter_mut()
-                                        .for_each(|d| {
-                                            d.value = format!("{}{}", d.value, char)
-                                                .parse::<u8>()
-                                                .unwrap_or(255);
-                                        });
-                                    self.update_dmx();
-                                    return;
-                                } else if matches!(char, 'f' | 'F') {
-                                    dmx_faders.iter_mut().for_each(|dmx_fader| {
-                                        if dmx_fader.is_focused {
-                                            dmx_fader.value = 255;
-                                        }
+                            if char.is_ascii_digit() {
+                                // Have to check if this works correctly
+                                dmx_faders
+                                    .iter_mut()
+                                    .find(|d| d.is_focused)
+                                    .iter_mut()
+                                    .for_each(|d| {
+                                        d.value = format!("{}{}", d.value, char)
+                                            .parse::<u8>()
+                                            .unwrap_or(255);
                                     });
-                                    return;
-                                } else if matches!(char, '.' | 'r' | 'R') {
-                                    dmx_faders.iter_mut().for_each(|dmx_fader| {
-                                        if dmx_fader.is_focused {
-                                            dmx_fader.value = 0;
-                                        }
-                                    });
-                                    return;
-                                }
                                 self.update_dmx();
                                 return;
+                            } else if matches!(char, 'f' | 'F') {
+                                dmx_faders.iter_mut().for_each(|dmx_fader| {
+                                    if dmx_fader.is_focused {
+                                        dmx_fader.value = 255;
+                                    }
+                                });
+                                return;
+                            } else if matches!(char, '.' | 'r' | 'R') {
+                                dmx_faders.iter_mut().for_each(|dmx_fader| {
+                                    if dmx_fader.is_focused {
+                                        dmx_fader.value = 0;
+                                    }
+                                });
+                                return;
                             }
+                            self.update_dmx();
+                            return;
                         }
                         if self.dmx.is_none() {
                             serial.push(char);
-                            return;
                         }
                     }
                     KeyCode::Backspace => {
@@ -705,19 +684,18 @@ impl TabManager {
                             return;
                         }
                         // If dmx connection :
-                        if let Some(_) = self.dmx {
+                        if self.dmx.is_some() {
                             if key.modifiers == KeyModifiers::ALT {
                                 **adr = 1;
                                 return;
                             }
-                            let mut dmx_faders = vec![fader1, fader2, fader3, fader4];
+                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
                             let focused = dmx_faders
                                 .iter_mut()
                                 .find(|dmx_fader| dmx_fader.is_focused)
                                 .unwrap();
                             focused.value = 0;
                             self.update_dmx();
-                            return;
                         }
                     }
                     _ => {}
@@ -733,16 +711,16 @@ impl TabManager {
     fn handle_event_resize(&mut self, _x: u16, _y: u16) {}
 
     fn update_dmx(&mut self) {
-        if let Content::DMX(dimmer, r, g, b, adr, _serial, dmx_status) =
+        if let Content::Dmx(dimmer, r, g, b, adr, _serial, dmx_status) =
             &mut self.tabs[self.selected_tab].content
         {
             if let Some(dmx_chan) = &mut self.dmx {
-                let mut dmxs = vec![dimmer, r, g, b];
+                let mut dmxs = [dimmer, r, g, b];
                 dmxs.iter_mut().enumerate().for_each(|(id, dmx)| {
                     let dmx_channel_adress: usize = adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
                     match open_dmx::check_valid_channel(dmx_channel_adress) {
                         Ok(_) => {
-                            if let Ok(_) = dmx_chan.set_channel(dmx_channel_adress, dmx.value) {
+                            if dmx_chan.set_channel(dmx_channel_adress, dmx.value).is_ok() {
                                 // DMX SUCESSFULY SET TO VALUE
                                 *dmx_status =
                                     format!("set {} to {}", dmx_channel_adress, dmx.value);
@@ -769,9 +747,8 @@ fn input_field_logic(
     soundlist: &mut SoundList,
 ) {
     //Normal Mode
-    if inputfield.input_mode == false && key == KeyCode::Enter {
+    if !inputfield.input_mode && key == KeyCode::Enter {
         inputfield.toggle();
-        return;
     }
     //Edit Mode
     else if inputfield.input_mode {
@@ -823,7 +800,7 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                 }
             }
             KeyCode::Char(char_to_insert) => match char_to_insert {
-                '0'..'9' | '.' => {
+                '0'..='9' | '.' => {
                     if Duration::from_secs(
                         format!("{}{}", si.fade_tab_content[0].input, char_to_insert)
                             .parse::<u64>()
@@ -853,7 +830,7 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                 }
             }
             KeyCode::Char(char_to_insert) => match char_to_insert {
-                '0'..'9' | '.' => {
+                '0'..='9' | '.' => {
                     if Duration::from_secs(
                         format!("{}{}", si.fade_tab_content[1].input, char_to_insert)
                             .parse::<u64>()
@@ -882,8 +859,8 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                     si.fade_tab_content[2].delete_char();
                 }
             }
-            KeyCode::Char(char_to_insert) => match char_to_insert {
-                '0'..'9' => {
+            KeyCode::Char(char_to_insert) => {
+                if let '0'..='9' = char_to_insert {
                     si.fade_tab_content[2].enter_char(char_to_insert);
 
                     match si.fade_tab_content[2].input.parse::<u64>() {
@@ -901,8 +878,7 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
                         }
                     }
                 }
-                _ => {}
-            },
+            }
             _ => {}
         }
     }

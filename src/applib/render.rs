@@ -21,33 +21,27 @@ impl StatefulWidget for Tab {
                         if self.is_used() {
                             if sound_list.state.selected().is_some() {
                                 "| Press <Esc> to quit Sound List |"
+                            } else if input.input_mode {
+                                "| Press <Enter> or <Esc> to validate |"
                             } else {
-                                if input.input_mode {
-                                    "| Press <Enter> or <Esc> to validate |"
-                                } else {
-                                    ""
-                                }
+                                ""
                             }
+                        } else if  sound_list.selected && !sound_list.sound_files.is_empty() {
+                            "| Press <Shift> + ◄ ► to change Tab | Press <Enter> to enter the Sound List |"
+                        } else if input.is_selected {
+                            "| Press <Shift> + ◄ ► to change Tab | Press <Enter> to edit Path |"
                         } else {
-                            if  sound_list.selected && sound_list.sound_files.len() != 0 {
-                                "| Press <Shift> + ◄ ► to change Tab | Press <Enter> to enter the Sound List |"
-                            } else {
-                                if input.is_selected {
-                                    "| Press <Shift> + ◄ ► to change Tab | Press <Enter> to edit Path |"
-                                } else {
-                                    ""
-                                }
-                            }
+                            ""
                         }
                     }
-                    Content::OSC(_ipinput1, _ipinput2) => {
+                    Content::Osc(_ipinput1, _ipinput2) => {
                         if self.is_used() {
                             "| Press <Enter> to confirm |"
                         } else {
                             "| Press <Shift> + ◄ ► to change Tab |"
                         }
                     },
-                    Content::DMX(..) => {
+                    Content::Dmx(..) => {
                         if self.is_used() {"||"} else {"| Press <Shift> + ◄ ► to change Tab | Press ◄ ► to navigate between DMX Channel | "}
                     }
                 })
@@ -67,20 +61,14 @@ impl StatefulWidget for Tab {
                                 }
                             } else {"| Press <Shift> + ▲ ▼ to navigate |"}
                         },
-                        Content::OSC(ipinput1,ipinput2 ) => {
+                        Content::Osc(ipinput1,ipinput2 ) => {
                             if self.is_used() {
                                 ""
-                            } else {
-                                if ipinput1.focus {
-                                    "| Press <Enter> to edit | Press <Shift> + ▲ ▼ to navigate |"
-                                } else {
-                                    if ipinput2.focus {
-                                        "| Press <Enter> to edit | Press <Shift> + ▲ ▼ to navigate |"
-                                    } else {"| Press <Shift> + ▲ ▼ to navigate |"}
-                                }
-                            }
+                            } else if ipinput1.focus || ipinput2.focus {
+                                "| Press <Enter> to edit | Press <Shift> + ▲ ▼ to navigate |"
+                            } else {"| Press <Shift> + ▲ ▼ to navigate |"}
                         },
-                        Content::DMX(..) => {
+                        Content::Dmx(..) => {
                             if self.is_used() {""} else {"| Enter <0-9> to set to DMX value | Press <Backspace> to reset DMX Value | <CTRL> + ▲ ▼ to modify DMX Value by 10 | ▲ ▼ to modify DMX Value by 1 |"}
                         }
                         
@@ -119,7 +107,7 @@ impl StatefulWidget for Tab {
                         .render(tab_footer, buf, &mut sound_list.state);
                 }
             }
-            Content::OSC(listening_ip_input, remote_ip_input) => {
+            Content::Osc(listening_ip_input, remote_ip_input) => {
                 match [listening_ip_input.focus,remote_ip_input.focus].iter().find(|b| **b) {
                     Some(_) => {},
                     None => {listening_ip_input.focus = true},
@@ -138,8 +126,8 @@ impl StatefulWidget for Tab {
                     .clone()
                     .render(remote_input_area, buf, &mut remote_ip_input.input)
             },
-            Content::DMX(dimmer_input,r_input,v_input,b_input,adr,ip, dmx_status) => {
-                match [dimmer_input.is_focused,r_input.is_focused,v_input.is_focused,b_input.is_focused].iter().find(|b| if **b {true} else {false}) {
+            Content::Dmx(dimmer_input,r_input,v_input,b_input,adr,ip, dmx_status) => {
+                match [dimmer_input.is_focused,r_input.is_focused,v_input.is_focused,b_input.is_focused].iter().find(|b| **b) {
                     Some(_) => {
                     },
                     None => dimmer_input.is_focused = true,
@@ -177,12 +165,12 @@ impl StatefulWidget for Input {
         })
         .block(
             Block::bordered()
-                .title(Line::from(match self.input_mode {
+                .title(match self.input_mode {
                     false => Line::from(state.to_string()).centered().fg(Color::White),
-                    true => Line::from(format!("{} - Edit", state.to_string()))
+                    true => Line::from(format!("{} - Edit", state))
                         .centered()
                         .fg(Color::Yellow),
-                }))
+                })
                 .fg(match self.is_selected {
                     true => Color::Yellow,
                     false => Color::White,
@@ -207,7 +195,7 @@ impl StatefulWidget for IPInput {
                     .title(if self.edit_mode {
                         format!("{} - Edit", self.title)
                     } else {
-                        format!("{}", self.title)
+                        self.title.to_string()
                     })
                     .title_alignment(Alignment::Center)
                     .title_position(block::Position::Top),
@@ -290,7 +278,7 @@ impl StatefulWidget for SoundList {
             .title(
                 Title::from(
                     match state.selected() {
-                        Some(_) => {format!("{}{}",if self.currently_playing == "" {""} else {"Playing : "},self.currently_playing.clone())}
+                        Some(_) => {format!("{}{}",if self.currently_playing.is_empty() {""} else {"Playing : "},self.currently_playing.clone())}
                         None => {"-".to_string()}
                     })
                 .alignment(Alignment::Right)
@@ -328,7 +316,7 @@ impl StatefulWidget for DMXInput {
         BarChart::default()
             .direction(Direction::Vertical)
             .max(255)
-            .data(BarGroup::default().bars(&vec![bar]))
+            .data(BarGroup::default().bars(&[bar]))
             .style(Style::new()
                 .fg(if self.is_focused {Color::Yellow} else {Color::White}))
             .bar_width(frame.inner(area).width)

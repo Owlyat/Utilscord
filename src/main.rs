@@ -50,10 +50,10 @@ impl Utilscord {
         ratatui::restore();
     }
     fn open_dmx(&mut self) {
-        if let Content::DMX(_dimmer, _r, _g, _b, _adr, serial, dmx_status) =
+        if let Content::Dmx(_dimmer, _r, _g, _b, _adr, serial, dmx_status) =
             &mut self.tab_manager.tabs[2].content
         {
-            match DMXSerial::open(if serial == "" {
+            match DMXSerial::open(if serial.is_empty() {
                 match env::consts::OS {
                     "windows" => {
                         *serial = "COM3".into();
@@ -66,7 +66,7 @@ impl Utilscord {
                     _ => "",
                 }
             } else {
-                &serial.trim()
+                serial.trim()
             }) {
                 Ok(dmx_chan) => {
                     self.tab_manager.dmx = Some(dmx_chan);
@@ -82,7 +82,7 @@ impl Utilscord {
         }
     }
     fn check_dmx_state(&mut self) {
-        if let Content::DMX(dimmer, r, g, b, adr, serial, dmx_status) =
+        if let Content::Dmx(dimmer, r, g, b, adr, serial, dmx_status) =
             &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
         {
             if let Some(dmx) = &mut self.tab_manager.dmx {
@@ -92,7 +92,7 @@ impl Utilscord {
                     if !chan.clone().title.ends_with(&dmx_chan_adr.to_string()) {
                         let mut title = String::new();
                         for char in chan.title.chars() {
-                            if !matches!(char, '0'..='9') {
+                            if !char.is_ascii_digit() {
                                 title.push(char);
                             }
                         }
@@ -105,7 +105,7 @@ impl Utilscord {
                         *dmx_status = "Running".to_string();
                     }
                     Err(e) => {
-                        if let Content::DMX(dimmer, r, g, b, adr, _serial, dmx_status) =
+                        if let Content::Dmx(dimmer, r, g, b, adr, _serial, dmx_status) =
                             &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
                         {
                             *dmx_status = format!("{}", e);
@@ -119,7 +119,7 @@ impl Utilscord {
                                         {
                                             let mut title = String::new();
                                             for char in chan.title.chars() {
-                                                if !matches!(char, '0'..='9') {
+                                                if !char.is_ascii_digit() {
                                                     title.push(char);
                                                 }
                                             }
@@ -135,29 +135,26 @@ impl Utilscord {
                         }
                     }
                 }
-            } else {
-                if !matches!(serial.as_str(), "COM3" | "/dev/ttyUSB0") {
-                    match DMXSerial::open(serial) {
-                        Ok(dmx) => {
-                            self.tab_manager.dmx = Some(dmx);
-                        }
-                        Err(e) => {
-                            *dmx_status =
-                                format!("Error while opening from Serial {} : {}", serial, e);
-                        }
+            } else if !matches!(serial.as_str(), "COM3" | "/dev/ttyUSB0") {
+                match DMXSerial::open(serial) {
+                    Ok(dmx) => {
+                        self.tab_manager.dmx = Some(dmx);
                     }
-                } else {
-                    match DMXSerial::open(serial) {
-                        Ok(dmx) => {
-                            self.tab_manager.dmx = Some(dmx);
-                        }
-                        Err(e) => {
-                            *dmx_status = format!(
-                                "Error while opening from default {} Serial : {}",
-                                if serial == "COM3" { "Windows" } else { "Linux" },
-                                e
-                            );
-                        }
+                    Err(e) => {
+                        *dmx_status = format!("Error while opening from Serial {} : {}", serial, e);
+                    }
+                }
+            } else {
+                match DMXSerial::open(serial) {
+                    Ok(dmx) => {
+                        self.tab_manager.dmx = Some(dmx);
+                    }
+                    Err(e) => {
+                        *dmx_status = format!(
+                            "Error while opening from default {} Serial : {}",
+                            if serial == "COM3" { "Windows" } else { "Linux" },
+                            e
+                        );
                     }
                 }
             }
@@ -165,8 +162,8 @@ impl Utilscord {
     }
 
     fn handle_osc(&mut self) {
-        match &mut self.tab_manager.osc_receiver {
-            Some(rcvr) => match rcvr.recv_timeout(Duration::from_millis(50)) {
+        if let Some(rcvr) = &mut self.tab_manager.osc_receiver {
+            match rcvr.recv_timeout(Duration::from_millis(50)) {
                 Ok(packet) => match packet {
                     rosc::OscPacket::Message(osc_message) => {
                         self.tab_manager.osc_message_interaction(osc_message);
@@ -176,8 +173,7 @@ impl Utilscord {
                     }
                 },
                 Err(_e) => {}
-            },
-            None => {}
+            }
         }
     }
 
@@ -228,7 +224,7 @@ impl Utilscord {
                                         }
                                     }
                                 }
-                                Content::OSC(..) => {
+                                Content::Osc(..) => {
                                     if key.modifiers == KeyModifiers::SHIFT {
                                         match key.code {
                                             KeyCode::Up => {
@@ -248,7 +244,7 @@ impl Utilscord {
                                         }
                                     }
                                 }
-                                Content::DMX(..) => match key.code {
+                                Content::Dmx(..) => match key.code {
                                     KeyCode::Right => {
                                         if key.modifiers == KeyModifiers::SHIFT {
                                             self.tab_manager.next()

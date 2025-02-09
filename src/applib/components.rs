@@ -25,7 +25,7 @@ pub struct Tab {
     pub content: Content,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Input {
     /// Current value of the input box
     pub input: String,
@@ -44,23 +44,27 @@ impl Tab {
     pub fn is_used(&self) -> bool {
         match self.content.clone() {
             Content::MainMenu(sound_list, input) => {
-                if sound_list.editingfades
-                    || sound_list.state.selected() != None
-                    || input.input_mode
-                {
-                    true
-                } else {
-                    false
+                if sound_list.editingfades {
+                    return true;
                 }
-            }
-            Content::OSC(listening_ip_input, remote_ip_input) => {
-                if listening_ip_input.edit_mode || remote_ip_input.edit_mode {
-                    true
-                } else {
-                    false
+                if sound_list.state.selected().is_some() {
+                    return true;
                 }
+                if input.input_mode {
+                    return true;
+                }
+                false
             }
-            Content::DMX(..) => false,
+            Content::Osc(listening_ip_input, remote_ip_input) => {
+                if listening_ip_input.edit_mode {
+                    return true;
+                }
+                if remote_ip_input.edit_mode {
+                    return true;
+                }
+                false
+            }
+            Content::Dmx(..) => false,
         }
     }
 
@@ -70,23 +74,24 @@ impl Tab {
                 input.is_selected = !input.is_selected;
                 sound_list.selected = !sound_list.selected;
             }
-            Content::OSC(listening_ip_input, remote_ip_input) => {
+            Content::Osc(listening_ip_input, remote_ip_input) => {
                 listening_ip_input.focus = !listening_ip_input.focus;
                 remote_ip_input.focus = !remote_ip_input.focus;
                 if listening_ip_input.focus == remote_ip_input.focus {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
-            Content::DMX(dimmer, r, v, b, _, _, _) => {
-                let mut vec = vec![dimmer, r, v, b];
-                let vecsize = vec.len();
-                let (index, _dmx_input) = match vec.iter().enumerate().find(|e| e.1.is_focused) {
-                    Some(x) => x,
-                    None => (0, &vec[0]),
-                };
-                vec[index].is_focused = false;
-                vec[(index + 1) % vecsize].is_focused = true;
-            } //
+            Content::Dmx(dimmer, r, v, b, _, _, _) => {
+                let dmx_array = [dimmer, r, v, b];
+                let array_len = dmx_array.len();
+                let (index, _dmx_input) =
+                    match dmx_array.iter().enumerate().find(|e| e.1.is_focused) {
+                        Some(x) => x,
+                        None => (0, &dmx_array[0]),
+                    };
+                dmx_array[index].is_focused = false;
+                dmx_array[(index + 1) % array_len].is_focused = true;
+            }
         }
     }
 
@@ -96,22 +101,23 @@ impl Tab {
                 input.is_selected = !input.is_selected;
                 sound_list.selected = !sound_list.selected;
             }
-            Content::OSC(listening_ip_input, remote_ip_input) => {
+            Content::Osc(listening_ip_input, remote_ip_input) => {
                 listening_ip_input.focus = !listening_ip_input.focus;
                 remote_ip_input.focus = !remote_ip_input.focus;
                 if listening_ip_input.focus == remote_ip_input.focus {
                     remote_ip_input.focus = !remote_ip_input.focus
                 }
             }
-            Content::DMX(dimmer, r, v, b, _, _, _) => {
-                let mut vec = vec![dimmer, r, v, b];
-                let vecsize = vec.len();
-                let (index, _dmx_input) = match vec.iter().enumerate().find(|e| e.1.is_focused) {
-                    Some(x) => x,
-                    None => (0, &vec[0]),
-                };
-                vec[index].is_focused = false;
-                vec[(index + vecsize - 1) % vecsize].is_focused = true;
+            Content::Dmx(fader1, fader2, fader3, fader4, _, _, _) => {
+                let dmx_array = [fader1, fader2, fader3, fader4];
+                let array_len = dmx_array.len();
+                let (index, _dmx_input) =
+                    match dmx_array.iter().enumerate().find(|e| e.1.is_focused) {
+                        Some(x) => x,
+                        None => (0, &dmx_array[0]),
+                    };
+                dmx_array[index].is_focused = false;
+                dmx_array[(index + array_len - 1) % array_len].is_focused = true;
             }
         }
     }
@@ -120,8 +126,8 @@ impl Tab {
 #[derive(Debug)]
 pub enum Content {
     MainMenu(SoundList, Input),
-    OSC(IPInput, IPInput),
-    DMX(
+    Osc(IPInput, IPInput),
+    Dmx(
         DMXInput,
         DMXInput,
         DMXInput,
@@ -132,7 +138,7 @@ pub enum Content {
     ),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DMXInput {
     pub is_focused: bool,
     pub value: u8,
@@ -152,22 +158,12 @@ impl DMXInput {
     }
 }
 
-impl Default for DMXInput {
-    fn default() -> Self {
-        DMXInput {
-            is_focused: false,
-            value: 0,
-            title: String::new(),
-        }
-    }
-}
-
 impl Content {
     pub fn to_string(&self) -> &str {
         match self {
             Content::MainMenu(_sound_list, _input) => "Sound Bank",
-            Content::OSC(_listening_ip_input, _remote_ip_input) => "OSC",
-            Content::DMX(_, _, _, _, _, _, _) => "DMX",
+            Content::Osc(_listening_ip_input, _remote_ip_input) => "OSC",
+            Content::Dmx(_, _, _, _, _, _, _) => "DMX",
         }
     }
 }
@@ -251,24 +247,11 @@ impl Clone for Input {
     fn clone(&self) -> Self {
         Self {
             input: self.input.clone(),
-            character_index: self.character_index.clone(),
-            input_mode: self.input_mode.clone(),
+            character_index: self.character_index,
+            input_mode: self.input_mode,
             input_field_title: self.input_field_title.clone(),
-            is_selected: self.is_selected.clone(),
-            edited: self.edited.clone(),
-        }
-    }
-}
-
-impl Default for Input {
-    fn default() -> Self {
-        Input {
-            input: String::new(),
-            character_index: 0,
-            input_mode: false,
-            input_field_title: String::new(),
-            is_selected: false,
-            edited: false,
+            is_selected: self.is_selected,
+            edited: self.edited,
         }
     }
 }
@@ -301,9 +284,9 @@ impl IPInput {
         if self.edit_mode {
             self.edit_mode = false;
             match self.submit_message() {
-                Ok(rcv) => return Ok(rcv),
-                Err(()) => return Err(()),
-            };
+                Ok(rcv) => Ok(rcv),
+                Err(()) => Err(()),
+            }
         } else {
             self.edit_mode = true;
             Err(())
@@ -372,10 +355,7 @@ impl IPInput {
                             match sock.recv_from(&mut buf) {
                                 Ok((size, _addr)) => {
                                     match rosc::decoder::decode_udp(&buf[..size]) {
-                                        Ok((_, packet)) => match sender.send(packet) {
-                                            Ok(_) => {}
-                                            Err(_) => {}
-                                        },
+                                        Ok((_, packet)) => if sender.send(packet).is_ok() {},
                                         Err(_e) => {}
                                     };
                                 }
@@ -402,13 +382,13 @@ impl Clone for Content {
     fn clone(&self) -> Content {
         match self {
             Content::MainMenu(soundlist, input) => {
-                return Content::MainMenu(soundlist.clone(), input.clone())
+                Content::MainMenu(soundlist.clone(), input.clone())
             }
-            Content::OSC(listening_ip_input, remote_ip_input) => {
-                return Content::OSC(listening_ip_input.clone(), remote_ip_input.clone())
+            Content::Osc(listening_ip_input, remote_ip_input) => {
+                Content::Osc(listening_ip_input.clone(), remote_ip_input.clone())
             }
-            Content::DMX(dimmer_input, r_input, v_input, b_input, dmx_adress, ip, dmx_status) => {
-                return Content::DMX(
+            Content::Dmx(dimmer_input, r_input, v_input, b_input, dmx_adress, ip, dmx_status) => {
+                Content::Dmx(
                     dimmer_input.clone(),
                     r_input.clone(),
                     v_input.clone(),
@@ -510,18 +490,18 @@ impl SoundList {
     }
 
     pub fn modify_local_volume(&mut self, index: usize, new_volume: f32) -> Result<(), String> {
-        if index <= self.sound_files.len() - 1 {
+        if index < self.sound_files.len() {
             self.sound_files[index].local_volume = new_volume.clamp(-2.0, 2.0);
-            return Ok(());
+            Ok(())
         } else {
-            return Err(format!(
+            Err(format!(
                 "Index : [{}] is out of bound \n    => Lenght : {}\n    {} <= {}",
                 index,
                 self.sound_files.len() - 1,
                 index,
                 self.sound_files.len() - 1
-            ));
-        };
+            ))
+        }
     }
     pub fn play(
         &mut self,
@@ -577,10 +557,8 @@ impl SoundList {
                     match i {
                         MusicState::Remove => {
                             sink.clear();
-                            match sender.send(sink.volume()) {
-                                _ => {}
-                            };
-                            break;
+                            let _ = sender.send(sink.volume());
+                            {}
                         }
                         MusicState::PlayResume => {
                             if sink.is_paused() {
@@ -596,10 +574,7 @@ impl SoundList {
                                 sink.set_volume(0.0);
                             } else {
                                 sink.set_volume(gv + lv);
-                                match sender.send(sink.volume()) {
-                                    Ok(_) => {}
-                                    Err(_) => {}
-                                };
+                                if sender.send(sink.volume()).is_ok() {};
                             }
                         }
                         MusicState::LocalVolumeChanged(new_local_volume) => {
@@ -608,10 +583,7 @@ impl SoundList {
                                 sink.set_volume(0.0);
                             } else {
                                 sink.set_volume(gv + lv);
-                                match sender.send(sink.volume()) {
-                                    Ok(_) => {}
-                                    Err(_) => {}
-                                };
+                                if sender.send(sink.volume()).is_ok() {};
                             }
                         }
                     }
@@ -629,7 +601,7 @@ impl SoundList {
             .iter()
             .map(|si| {
                 // Check if local volume is not edited
-                return ListItem::new(
+                ListItem::new(
                     if let 0.0 = format!("{:.2}", si.local_volume)
                         .trim()
                         .parse::<f32>()
@@ -644,16 +616,16 @@ impl SoundList {
                             .left_aligned()
                             .fg(Color::White),
                             // Fade Text
-                            Line::from(vec![if let true = si.selected {
+                            Line::from(vec![if si.selected {
                                 Span::styled("Press F to edit Fades", Style::default())
                             } else {
                                 Span::styled("", Style::default().fg(Color::White))
                             }])
                             .right_aligned()
                             .fg(Color::Yellow),
-                            if let true = si.selected {
+                            if si.selected {
                                 Line::from(Span::styled(
-                                    format!("{} secondes", si.max_duration.as_secs().to_string()),
+                                    format!("{} secondes", si.max_duration.as_secs()),
                                     Style::default(),
                                 ))
                             } else {
@@ -675,7 +647,7 @@ impl SoundList {
                             ))
                             .centered(),
                             // Fade Text
-                            Line::from(vec![if let true = si.selected {
+                            Line::from(vec![if si.selected {
                                 Span::styled(
                                     "Press F to edit Fades",
                                     Style::default().fg(Color::Yellow),
@@ -684,9 +656,9 @@ impl SoundList {
                                 Span::styled("", Style::default().fg(Color::White))
                             }])
                             .right_aligned(),
-                            Line::from(vec![if let true = si.selected {
+                            Line::from(vec![if si.selected {
                                 Span::styled(
-                                    format!("{} secondes", si.max_duration.as_secs().to_string()),
+                                    format!("{} secondes", si.max_duration.as_secs()),
                                     Style::default(),
                                 )
                             } else {
@@ -694,7 +666,7 @@ impl SoundList {
                             }]),
                         ])
                     },
-                );
+                )
             })
             .collect()
     }
@@ -730,7 +702,7 @@ impl SoundList {
 
     pub fn toggle_status(&mut self) {
         if let Some(i) = self.state.selected() {
-            if self.sound_files.len() - 1 >= i {
+            if self.sound_files.len() > i {
                 self.sound_files[i].selected = !self.sound_files[i].selected
             } else {
                 self.state.select_first();
@@ -748,7 +720,7 @@ impl SoundList {
     fn get_sound_files_from_dir<P: AsRef<Path>>(folder_path: P) -> Vec<SoundItem> {
         let mut sound_files = Vec::new();
         if let Ok(entries) = fs::read_dir(folder_path) {
-            for entry in entries {
+            entries.for_each(|entry| {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if let Some(extension) = path.extension() {
@@ -775,7 +747,7 @@ impl SoundList {
                                         },
                                     ],
                                     trim_in: Duration::from_secs(0),
-                                    max_duration: lofty::read_from_path(&Path::new(
+                                    max_duration: lofty::read_from_path(Path::new(
                                         format!("{}", entry.path().to_string_lossy()).as_str(),
                                     ))
                                     .unwrap()
@@ -786,7 +758,7 @@ impl SoundList {
                         }
                     }
                 }
-            }
+            });
         }
         sound_files
     }
