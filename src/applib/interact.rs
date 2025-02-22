@@ -16,7 +16,6 @@ use rosc::OscMessage;
 use rosc::OscPacket;
 use std::env;
 use std::fs;
-use std::process::Termination;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 use std::vec;
@@ -279,16 +278,18 @@ impl TabManager {
                 (num_str, value_str)
                     if num_str
                         .parse::<usize>()
-                        .is_ok_and(|channel| open_dmx::check_valid_channel(channel).is_ok())
-                        && value_str.parse::<u8>().is_ok() =>
+                        .is_ok_and(|channel| open_dmx::check_valid_channel(channel).is_ok()) =>
                 {
-                    let dmx_channel: usize = num_str.parse().unwrap();
-                    let dmx_value: u8 = value_str.parse().unwrap();
-
-                    if let Some(dmx) = &mut self.dmx {
-                        if dmx.check_agent().is_ok()
-                            && dmx.set_channel(dmx_channel, dmx_value).is_ok()
-                        {
+                    if let Ok(dmx_value) = value_str.parse::<u8>() {
+                        if let Ok(dmx_channel) = num_str.parse::<usize>() {
+                            if (1..DMX_CHANNELS).contains(&dmx_channel) {
+                                if let Some(dmx) = &mut self.dmx {
+                                    if dmx.check_agent().is_ok()
+                                        && dmx.set_channel(dmx_channel, dmx_value).is_ok()
+                                    {
+                                    }
+                                }
+                            }
                         }
                     }
                 }
