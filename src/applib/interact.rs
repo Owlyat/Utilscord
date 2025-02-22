@@ -16,6 +16,7 @@ use rosc::OscMessage;
 use rosc::OscPacket;
 use std::env;
 use std::fs;
+use std::process::Termination;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 use std::vec;
@@ -271,6 +272,27 @@ impl TabManager {
                 };
 
                 soundlist.play(wtr, wts, index, fade_in_duration, fade_out_duration);
+            }
+        }
+        if osc_path[2] == "DMXChan" {
+            match (osc_path[3], osc_path[4]) {
+                (num_str, value_str)
+                    if num_str
+                        .parse::<usize>()
+                        .is_ok_and(|channel| open_dmx::check_valid_channel(channel).is_ok())
+                        && value_str.parse::<u8>().is_ok() =>
+                {
+                    let dmx_channel: usize = num_str.parse().unwrap();
+                    let dmx_value: u8 = value_str.parse().unwrap();
+
+                    if let Some(dmx) = &mut self.dmx {
+                        if dmx.check_agent().is_ok()
+                            && dmx.set_channel(dmx_channel, dmx_value).is_ok()
+                        {
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
