@@ -241,7 +241,7 @@ pub struct IPInput {
     pub title: String,
     character_index: usize,
     pub _osc_receiver: Option<OscPacket>,
-    pub last_action_widget: OscInfoWidget,
+    last_action_widget: OscInfoWidget,
 }
 
 impl IPInput {
