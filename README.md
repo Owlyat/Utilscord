@@ -33,6 +33,7 @@ Quit | Ctrl + C / Ctrl + Q
 /Utilscord/LocalVolume/Selected (Float) | Will set the local volume of the selected song
 /Utilscord/LocalVolume/0 (Float) | Will set the local volume of the song specified number (here 0)
 /Utilscord/Volume (float) | Will set the general volume of the app
+/DMXChan/{number between 1 to 512}/{Number between 0 to 255} | Will set a DMX Channel to the desired value ex: /DMXChan/55/255
 
 ### To do (in priority from top to bottom) :
 - [x] A General volume + A dedicated assignable volume for each sound

@@ -54,10 +54,7 @@ impl TabManager {
                     ),
                 },
                 Tab {
-                    content: Content::Osc(
-                        IPInput::new("Host IP:PORT".to_owned()),
-                        IPInput::new("Host IP:PORT".to_owned()),
-                    ),
+                    content: Content::Osc(IPInput::new("Host IP:PORT".to_owned())),
                 },
                 Tab {
                     content: Content::Dmx(
@@ -111,6 +108,44 @@ impl TabManager {
 
     pub fn osc_message_interaction(&mut self, osc_message: OscMessage) {
         let osc_path: Vec<&str> = osc_message.addr.split("/").collect();
+        match osc_path[2] {
+            "LocalVolume" | "Volume" | "Stop" | "Play" => {
+                self.osc_message_soundlist(&osc_message, &osc_path)
+            }
+            "DMXChan" => {
+                self.osc_message_dmx(&osc_message, &osc_path);
+            }
+            _ => {}
+        }
+    }
+
+    fn osc_message_dmx(&mut self, _osc_message: &OscMessage, osc_path: &[&str]) {
+        if osc_path[2] == "DMXChan" {
+            match (osc_path[3], osc_path[4]) {
+                (num_str, value_str)
+                    if num_str
+                        .parse::<usize>()
+                        .is_ok_and(|channel| open_dmx::check_valid_channel(channel).is_ok()) =>
+                {
+                    if let Ok(dmx_value) = value_str.parse::<u8>() {
+                        if let Ok(dmx_channel) = num_str.parse::<usize>() {
+                            if (1..DMX_CHANNELS).contains(&dmx_channel) {
+                                if let Some(dmx) = &mut self.dmx {
+                                    if dmx.check_agent().is_ok()
+                                        && dmx.set_channel(dmx_channel, dmx_value).is_ok()
+                                    {
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn osc_message_soundlist(&mut self, osc_message: &OscMessage, osc_path: &[&str]) {
         if osc_path[2] == "LocalVolume" {
             if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
                 for arg in osc_message.args.clone() {
@@ -271,29 +306,6 @@ impl TabManager {
                 };
 
                 soundlist.play(wtr, wts, index, fade_in_duration, fade_out_duration);
-            }
-        }
-        if osc_path[2] == "DMXChan" {
-            match (osc_path[3], osc_path[4]) {
-                (num_str, value_str)
-                    if num_str
-                        .parse::<usize>()
-                        .is_ok_and(|channel| open_dmx::check_valid_channel(channel).is_ok()) =>
-                {
-                    if let Ok(dmx_value) = value_str.parse::<u8>() {
-                        if let Ok(dmx_channel) = num_str.parse::<usize>() {
-                            if (1..DMX_CHANNELS).contains(&dmx_channel) {
-                                if let Some(dmx) = &mut self.dmx {
-                                    if dmx.check_agent().is_ok()
-                                        && dmx.set_channel(dmx_channel, dmx_value).is_ok()
-                                    {
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
             }
         }
     }
@@ -543,10 +555,8 @@ impl TabManager {
                     }
                 }
             }
-            Content::Osc(listening_ip_input, remote_ip_input)
-                if key.kind == KeyEventKind::Press =>
-            {
-                let inputs = vec![listening_ip_input, remote_ip_input];
+            Content::Osc(listening_ip_input) if key.kind == KeyEventKind::Press => {
+                let inputs = vec![listening_ip_input];
                 match key.code {
                     KeyCode::Enter => {
                         for input in inputs {
@@ -730,7 +740,21 @@ impl TabManager {
     fn handle_mouse_event(&mut self, _mouse: MouseEvent) {}
     fn handle_event_focus_gained(&mut self) {}
     fn handle_event_focus_lost(&mut self) {}
-    fn handle_event_paste(&mut self, _content: String) {}
+    fn handle_event_paste(&mut self, content: String) {
+        match &mut self.tabs[self.selected_tab].content {
+            Content::MainMenu(_sound_list, input) => {
+                if input.is_selected && input.input_mode {
+                    input.input.push_str(&content);
+                }
+            }
+            Content::Osc(ipinput) => {
+                if ipinput.focus && ipinput.edit_mode {
+                    ipinput.input.push_str(&content);
+                }
+            }
+            Content::Dmx(_dmxinput, _dmxinput1, _dmxinput22, _dmxinput33, _, _, _) => (),
+        }
+    }
     fn handle_event_resize(&mut self, _x: u16, _y: u16) {}
 
     fn update_dmx(&mut self) {
@@ -776,13 +800,6 @@ fn input_field_logic(
     //Edit Mode
     else if inputfield.input_mode {
         match key {
-            KeyCode::Char('V') => {
-                if keymod == KeyModifiers::CONTROL {
-                    inputfield.paste();
-                } else {
-                    inputfield.enter_char('v');
-                }
-            }
             KeyCode::Enter => {
                 inputfield.toggle();
                 soundlist.current_dir = inputfield.input.clone();

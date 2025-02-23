@@ -1,7 +1,5 @@
 #[path = "render.rs"]
 mod render;
-use clipboard::windows_clipboard::WindowsClipboardContext;
-use clipboard::ClipboardProvider;
 use lofty::file::AudioFile;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -55,13 +53,11 @@ impl Tab {
                 }
                 false
             }
-            Content::Osc(listening_ip_input, remote_ip_input) => {
+            Content::Osc(listening_ip_input) => {
                 if listening_ip_input.edit_mode {
                     return true;
                 }
-                if remote_ip_input.edit_mode {
-                    return true;
-                }
+
                 false
             }
             Content::Dmx(..) => false,
@@ -74,12 +70,8 @@ impl Tab {
                 input.is_selected = !input.is_selected;
                 sound_list.selected = !sound_list.selected;
             }
-            Content::Osc(listening_ip_input, remote_ip_input) => {
+            Content::Osc(listening_ip_input) => {
                 listening_ip_input.focus = !listening_ip_input.focus;
-                remote_ip_input.focus = !remote_ip_input.focus;
-                if listening_ip_input.focus == remote_ip_input.focus {
-                    remote_ip_input.focus = !remote_ip_input.focus
-                }
             }
             Content::Dmx(dimmer, r, v, b, _, _, _) => {
                 let dmx_array = [dimmer, r, v, b];
@@ -101,12 +93,8 @@ impl Tab {
                 input.is_selected = !input.is_selected;
                 sound_list.selected = !sound_list.selected;
             }
-            Content::Osc(listening_ip_input, remote_ip_input) => {
+            Content::Osc(listening_ip_input) => {
                 listening_ip_input.focus = !listening_ip_input.focus;
-                remote_ip_input.focus = !remote_ip_input.focus;
-                if listening_ip_input.focus == remote_ip_input.focus {
-                    remote_ip_input.focus = !remote_ip_input.focus
-                }
             }
             Content::Dmx(fader1, fader2, fader3, fader4, _, _, _) => {
                 let dmx_array = [fader1, fader2, fader3, fader4];
@@ -126,7 +114,7 @@ impl Tab {
 #[derive(Debug)]
 pub enum Content {
     MainMenu(SoundList, Input),
-    Osc(IPInput, IPInput),
+    Osc(IPInput),
     Dmx(
         DMXInput,
         DMXInput,
@@ -162,7 +150,7 @@ impl Content {
     pub fn to_string(&self) -> &str {
         match self {
             Content::MainMenu(_sound_list, _input) => "Sound Bank",
-            Content::Osc(_listening_ip_input, _remote_ip_input) => "OSC",
+            Content::Osc(_listening_ip_input) => "OSC",
             Content::Dmx(_, _, _, _, _, _, _) => "DMX",
         }
     }
@@ -224,18 +212,6 @@ impl Input {
 
     pub fn reset_cursor(&mut self) {
         self.character_index = 0;
-    }
-
-    pub fn paste(&mut self) {
-        let mut clip = WindowsClipboardContext::new().unwrap();
-        match clip.get_contents() {
-            Ok(text) => {
-                for char in text.chars() {
-                    self.enter_char(char);
-                }
-            }
-            Err(_e) => {}
-        }
     }
 
     pub fn toggle(&mut self) {
@@ -384,9 +360,7 @@ impl Clone for Content {
             Content::MainMenu(soundlist, input) => {
                 Content::MainMenu(soundlist.clone(), input.clone())
             }
-            Content::Osc(listening_ip_input, remote_ip_input) => {
-                Content::Osc(listening_ip_input.clone(), remote_ip_input.clone())
-            }
+            Content::Osc(listening_ip_input) => Content::Osc(listening_ip_input.clone()),
             Content::Dmx(dimmer_input, r_input, v_input, b_input, dmx_adress, ip, dmx_status) => {
                 Content::Dmx(
                     dimmer_input.clone(),

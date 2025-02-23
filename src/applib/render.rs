@@ -34,7 +34,7 @@ impl StatefulWidget for Tab {
                             ""
                         }
                     }
-                    Content::Osc(_ipinput1, _ipinput2) => {
+                    Content::Osc(_ipinput1, ) => {
                         if self.is_used() {
                             "| Press <Enter> to confirm |"
                         } else {
@@ -61,10 +61,10 @@ impl StatefulWidget for Tab {
                                 }
                             } else {"| Press <Shift> + ▲ ▼ to navigate |"}
                         },
-                        Content::Osc(ipinput1,ipinput2 ) => {
+                        Content::Osc(ipinput1, ) => {
                             if self.is_used() {
                                 ""
-                            } else if ipinput1.focus || ipinput2.focus {
+                            } else if ipinput1.focus   {
                                 "| Press <Enter> to edit | Press <Shift> + ▲ ▼ to navigate |"
                             } else {"| Press <Shift> + ▲ ▼ to navigate |"}
                         },
@@ -107,8 +107,8 @@ impl StatefulWidget for Tab {
                         .render(tab_footer, buf, &mut sound_list.state);
                 }
             }
-            Content::Osc(listening_ip_input, remote_ip_input) => {
-                match [listening_ip_input.focus,remote_ip_input.focus].iter().find(|b| **b) {
+            Content::Osc(listening_ip_input, ) => {
+                match [listening_ip_input.focus].iter().find(|b| **b) {
                     Some(_) => {},
                     None => {listening_ip_input.focus = true},
                 }
@@ -116,15 +116,13 @@ impl StatefulWidget for Tab {
                 let [tab_content, _tab_footer] = vert.areas(tab_content);
                 let ip_input_areas =
                     Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
-                let [listening_input_area, remote_input_area] = ip_input_areas.areas(tab_content);
+                let [listening_input_area, _] = ip_input_areas.areas(tab_content);
                 listening_ip_input.clone().render(
                     listening_input_area,
                     buf,
                     &mut listening_ip_input.input,
                 );
-                remote_ip_input
-                    .clone()
-                    .render(remote_input_area, buf, &mut remote_ip_input.input)
+                
             },
             Content::Dmx(dimmer_input,r_input,v_input,b_input,adr,ip, dmx_status) => {
                 match [dimmer_input.is_focused,r_input.is_focused,v_input.is_focused,b_input.is_focused].iter().find(|b| **b) {
