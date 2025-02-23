@@ -44,7 +44,21 @@ impl Utilscord {
                 .unwrap();
             self.handle_events();
             self.handle_osc();
-            self.check_dmx_state();
+            if self.tab_manager.dmx.is_none() {
+                // If the connection has failed or is lost, try to reconnect
+                self.reset_dmx_fader();
+                self.open_dmx_while_running();
+            } else if let Some(dmx) = &mut self.tab_manager.dmx {
+                if dmx.check_agent().is_ok() {
+                    self.draw_dmx_channels_on_fader();
+                } else if let Err(e) = dmx.reopen() {
+                    if let Content::Dmx(.., dmx_status) =
+                        &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
+                    {
+                        *dmx_status = format!("{e}");
+                    }
+                }
+            }
         }
 
         ratatui::restore();
@@ -57,105 +71,98 @@ impl Utilscord {
                 match env::consts::OS {
                     "windows" => {
                         *serial = "COM3".into();
-                        "COM3"
+                        serial
                     }
                     "linux" => {
                         *serial = "/dev/ttyUSB0".into();
-                        "/dev/ttyUSB0"
+                        serial
                     }
                     _ => "",
                 }
             } else {
-                serial.trim()
+                serial
             }) {
                 Ok(dmx_chan) => {
                     self.tab_manager.dmx = Some(dmx_chan);
                 }
                 Err(e) => {
                     *dmx_status = format!(
-                        "Error while opening default {} serial : {}",
-                        if serial == "COM3" { "Windows" } else { "Linux" },
+                        "Error while opening {} serial : {}",
+                        if serial == "COM3" {
+                            "Windows"
+                        } else if serial == "/dev/ttyUSB0" {
+                            "Linux"
+                        } else {
+                            ""
+                        },
                         e
                     )
                 }
             }
         }
     }
-    fn check_dmx_state(&mut self) {
-        if let Content::Dmx(dimmer, r, g, b, adr, serial, dmx_status) =
+    fn draw_dmx_channels_on_fader(&mut self) {
+        if let Content::Dmx(fader1, fader2, fader3, fader4, adr, _serial, dmx_status) =
             &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
         {
-            if let Some(dmx) = &mut self.tab_manager.dmx {
-                let mut dmxs = [dimmer, r, g, b];
-                dmxs.iter_mut().enumerate().for_each(|(id, chan)| {
-                    let dmx_chan_adr = adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
-                    if !chan.clone().title.ends_with(&dmx_chan_adr.to_string()) {
-                        let mut title = String::new();
-                        for char in chan.title.chars() {
-                            if !char.is_ascii_digit() {
-                                title.push(char);
-                            }
+            let mut dmxs = [fader1, fader2, fader3, fader4];
+            dmxs.iter_mut().enumerate().for_each(|(id, chan)| {
+                let dmx_chan_adr = adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
+                if !chan.clone().title.ends_with(&dmx_chan_adr.to_string()) {
+                    let mut title = String::new();
+                    for char in chan.title.chars() {
+                        if !char.is_ascii_digit() {
+                            title.push(char);
                         }
-                        chan.title = format!("Fader : {}", dmx_chan_adr);
+                    }
+                    chan.title = format!("Fader : {}", dmx_chan_adr);
+                }
+            });
+            *dmx_status = "Running".into();
+        }
+    }
+    fn reset_dmx_fader(&mut self) {
+        if let Content::Dmx(fader1, fader2, fader3, fader4, ..) =
+            &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
+        {
+            let mut dmx_faders = [fader1, fader2, fader3, fader4];
+            dmx_faders
+                .iter_mut()
+                .map(|dmx_fader| {
+                    if !dmx_fader.title.is_empty() {
+                        Some(dmx_fader)
+                    } else {
+                        None
+                    }
+                })
+                .for_each(|fader| {
+                    if let Some(fader) = fader {
+                        fader.title = String::new()
                     }
                 });
+        }
+    }
 
-                match dmx.check_agent() {
-                    Ok(_) => {
-                        *dmx_status = "Running".to_string();
-                    }
-                    Err(e) => {
-                        if let Content::Dmx(dimmer, r, g, b, adr, _serial, dmx_status) =
-                            &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
-                        {
-                            *dmx_status = format!("{}", e);
-                            match DMXSerial::reopen(dmx) {
-                                Ok(_) => {
-                                    let mut dmxs = [dimmer, r, g, b];
-                                    dmxs.iter_mut().enumerate().for_each(|(id, chan)| {
-                                        let dmx_chan_adr =
-                                            adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
-                                        if !chan.clone().title.ends_with(&dmx_chan_adr.to_string())
-                                        {
-                                            let mut title = String::new();
-                                            for char in chan.title.chars() {
-                                                if !char.is_ascii_digit() {
-                                                    title.push(char);
-                                                }
-                                            }
-                                            chan.title = format!("Fader : {}", dmx_chan_adr);
-                                        }
-                                    });
-                                    *dmx_status = "Running".to_string();
-                                }
-                                Err(e) => {
-                                    *dmx_status = format!("{}", e);
-                                }
-                            }
-                        }
-                    }
+    fn open_dmx_while_running(&mut self) {
+        if let Content::Dmx(.., serial, dmx_status) =
+            &mut self.tab_manager.tabs[self.tab_manager.selected_tab].content
+        {
+            match DMXSerial::open(serial) {
+                Ok(dmx_chan) => {
+                    self.tab_manager.dmx = Some(dmx_chan);
                 }
-            } else if !matches!(serial.as_str(), "COM3" | "/dev/ttyUSB0") {
-                match DMXSerial::open(serial) {
-                    Ok(dmx) => {
-                        self.tab_manager.dmx = Some(dmx);
-                    }
-                    Err(e) => {
-                        *dmx_status = format!("Error while opening from Serial {} : {}", serial, e);
-                    }
-                }
-            } else {
-                match DMXSerial::open(serial) {
-                    Ok(dmx) => {
-                        self.tab_manager.dmx = Some(dmx);
-                    }
-                    Err(e) => {
-                        *dmx_status = format!(
-                            "Error while opening from default {} Serial : {}",
-                            if serial == "COM3" { "Windows" } else { "Linux" },
-                            e
-                        );
-                    }
+                Err(e) => {
+                    *dmx_status = format!(
+                        "Error while opening {} serial : {}",
+                        if serial == "COM3" {
+                            "Windows"
+                        } else if serial == "/dev/ttyUSB0" {
+                            "Linux"
+                        } else {
+                            ""
+                        },
+                        e
+                    )
                 }
             }
         }
