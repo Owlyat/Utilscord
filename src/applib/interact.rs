@@ -112,10 +112,26 @@ impl TabManager {
         let osc_path: Vec<&str> = osc_message.addr.split("/").collect();
         match osc_path[2] {
             "LocalVolume" | "Volume" | "Stop" | "Play" => {
-                self.osc_message_soundlist(&osc_message, &osc_path)?
+                match self.osc_message_soundlist(&osc_message, &osc_path) {
+                    Ok(_) => return Ok(()),
+                    Err(e) => {
+                        if let Content::Osc(ipinput) = &mut self.tabs[1].content {
+                            ipinput.update_info(format!("Error : {e}",));
+                        }
+                        return Err(e);
+                    }
+                }
             }
 
-            "DMXChan" => self.osc_message_dmx(&osc_message, &osc_path)?,
+            "DMXChan" => match self.osc_message_dmx(&osc_message, &osc_path) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    if let Content::Osc(ipinput) = &mut self.tabs[1].content {
+                        ipinput.update_info(format!("Error : {e}",));
+                    }
+                    return Err(e);
+                }
+            },
             _ => {}
         }
         Err(format!("Invalid OSC path : {}", osc_path[2]))
@@ -164,6 +180,40 @@ impl TabManager {
                         } else {
                             return Err(format!("{} is not in range 0..=255", dmx_value_i32));
                         }
+                    } else if let OscType::Float(dmx_value_f32) = osc_type {
+                        if (0..=255).contains(&(dmx_value_f32.round() as i32)) {
+                            if let Ok(dmx_channel) = chan_str.parse::<usize>() {
+                                if (1..DMX_CHANNELS).contains(&dmx_channel) {
+                                    if let Some(dmx) = &mut self.dmx {
+                                        if dmx.check_agent().is_ok()
+                                            && dmx
+                                                .set_channel(
+                                                    dmx_channel,
+                                                    dmx_value_f32.round() as u8,
+                                                )
+                                                .is_ok()
+                                        {
+                                            if let Content::Osc(ipinput) = &mut self.tabs[1].content
+                                            {
+                                                ipinput.update_info(format!(
+                                                    "Channel {} set to {}",
+                                                    dmx_channel, dmx_value_f32
+                                                ));
+                                            }
+                                            return Ok(());
+                                        }
+                                    } else {
+                                        return Err(String::from("No DMX connection found !"));
+                                    }
+                                } else {
+                                    return Err(format!("{} is not in range 1..=512", dmx_channel));
+                                }
+                            } else {
+                                return Err(format!("Cannot Convert {} to usize", chan_str));
+                            }
+                        } else {
+                            return Err(format!("{} is not in range 0..=255", dmx_value_f32));
+                        }
                     } else {
                         return Err(format!("{:?} is not an Int !", osc_type));
                     }
@@ -186,6 +236,9 @@ impl TabManager {
     ) -> Result<(), String> {
         if osc_path[2] == "LocalVolume" {
             if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
+                if soundlist.sound_files.is_empty() {
+                    return Err("No Sound Files in the Sound List".to_owned());
+                }
                 let value = osc_message.args.first();
                 if let Some(value) = value {
                     if let Some(new_volume) = value.clone().float() {
@@ -262,6 +315,10 @@ impl TabManager {
         }
         if osc_path[2] == "Volume" {
             if let Content::MainMenu(soundlist, _input) = &mut self.tabs[0].content {
+                if soundlist.sound_files.is_empty() {
+                    return Err("No Sound Files in the Sound List".to_owned());
+                }
+
                 if osc_message.args.is_empty() {
                     return Err("No Volume Value provided".to_owned());
                 }
@@ -304,6 +361,10 @@ impl TabManager {
         }
         if osc_path[2] == "Play" {
             if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
+                if soundlist.sound_files.is_empty() {
+                    return Err("No Sound Files in the Sound List".to_owned());
+                }
+
                 let index = if osc_path[3] == "Next" {
                     if self.selected_tab != 0 {
                         self.selected_tab = 0;
