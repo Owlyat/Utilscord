@@ -166,7 +166,7 @@ impl Utilscord {
             match rcvr.recv_timeout(Duration::from_millis(50)) {
                 Ok(packet) => match packet {
                     rosc::OscPacket::Message(osc_message) => {
-                        self.tab_manager.osc_message_interaction(osc_message);
+                        if let Ok(()) = self.tab_manager.osc_message_interaction(osc_message) {};
                     }
                     rosc::OscPacket::Bundle(osc_bundle) => {
                         self.tab_manager.osc_bundle_interaction(osc_bundle);
@@ -272,6 +272,5 @@ impl Utilscord {
 }
 
 fn main() {
-    let mut utilschord = Utilscord::default();
-    utilschord.run();
+    Utilscord::default().run();
 }

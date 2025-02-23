@@ -1,6 +1,7 @@
 use crate::interact_mod::component::SoundItem;
 use crate::interact_mod::*;
 use crate::interact_mod::component::DMXInput;
+use component::OscInfoWidget;
 use ratatui::prelude::*;
 use ratatui::widgets::block::Title;
 use ratatui::widgets::*;
@@ -116,12 +117,13 @@ impl StatefulWidget for Tab {
                 let [tab_content, _tab_footer] = vert.areas(tab_content);
                 let ip_input_areas =
                     Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
-                let [listening_input_area, _] = ip_input_areas.areas(tab_content);
+                let [listening_input_area, info_area] = ip_input_areas.areas(tab_content);
                 listening_ip_input.clone().render(
                     listening_input_area,
                     buf,
                     &mut listening_ip_input.input,
                 );
+                listening_ip_input.last_action_widget.clone().render(info_area, buf);
                 
             },
             Content::Dmx(dimmer_input,r_input,v_input,b_input,adr,ip, dmx_status) => {
@@ -322,3 +324,15 @@ impl StatefulWidget for DMXInput {
         frame.render(area,buf );
     }
 }
+
+impl Widget for OscInfoWidget {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        Paragraph::new(self.info.clone())
+            .block(Block::bordered().title_top("Last OSC Event").title_alignment(Alignment::Center))
+            .render(area, buf);
+    }
+}
+

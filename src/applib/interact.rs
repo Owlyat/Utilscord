@@ -14,12 +14,14 @@ use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use rosc::OscBundle;
 use rosc::OscMessage;
 use rosc::OscPacket;
+use rosc::OscType;
 use std::env;
 use std::fs;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 use std::vec;
 
+#[derive(Debug)]
 pub struct TabManager {
     pub tabs: Vec<Tab>,
     pub selected_tab: usize,
@@ -106,107 +108,182 @@ impl TabManager {
 
     pub fn osc_bundle_interaction(&mut self, _osc_bundle: OscBundle) {}
 
-    pub fn osc_message_interaction(&mut self, osc_message: OscMessage) {
+    pub fn osc_message_interaction(&mut self, osc_message: OscMessage) -> Result<(), String> {
         let osc_path: Vec<&str> = osc_message.addr.split("/").collect();
         match osc_path[2] {
             "LocalVolume" | "Volume" | "Stop" | "Play" => {
-                self.osc_message_soundlist(&osc_message, &osc_path)
+                self.osc_message_soundlist(&osc_message, &osc_path)?
             }
-            "DMXChan" => {
-                self.osc_message_dmx(&osc_message, &osc_path);
-            }
+
+            "DMXChan" => self.osc_message_dmx(&osc_message, &osc_path)?,
             _ => {}
         }
+        Err(format!("Invalid OSC path : {}", osc_path[2]))
     }
 
-    fn osc_message_dmx(&mut self, _osc_message: &OscMessage, osc_path: &[&str]) {
+    fn osc_message_dmx(
+        &mut self,
+        osc_message: &OscMessage,
+        osc_path: &[&str],
+    ) -> Result<(), String> {
         if osc_path[2] == "DMXChan" {
-            match (osc_path[3], osc_path[4]) {
-                (num_str, value_str)
-                    if num_str
+            match (osc_path[3], &osc_message.args[0]) {
+                (chan_str, osc_type)
+                    if chan_str
                         .parse::<usize>()
                         .is_ok_and(|channel| open_dmx::check_valid_channel(channel).is_ok()) =>
                 {
-                    if let Ok(dmx_value) = value_str.parse::<u8>() {
-                        if let Ok(dmx_channel) = num_str.parse::<usize>() {
-                            if (1..DMX_CHANNELS).contains(&dmx_channel) {
-                                if let Some(dmx) = &mut self.dmx {
-                                    if dmx.check_agent().is_ok()
-                                        && dmx.set_channel(dmx_channel, dmx_value).is_ok()
-                                    {
+                    if let OscType::Int(dmx_value_i32) = osc_type {
+                        if (0..=255).contains(dmx_value_i32) {
+                            if let Ok(dmx_channel) = chan_str.parse::<usize>() {
+                                if (1..DMX_CHANNELS).contains(&dmx_channel) {
+                                    if let Some(dmx) = &mut self.dmx {
+                                        if dmx.check_agent().is_ok()
+                                            && dmx
+                                                .set_channel(dmx_channel, *dmx_value_i32 as u8)
+                                                .is_ok()
+                                        {
+                                            if let Content::Osc(ipinput) = &mut self.tabs[1].content
+                                            {
+                                                ipinput.update_info(format!(
+                                                    "Channel {} set to {}",
+                                                    dmx_channel, dmx_value_i32
+                                                ));
+                                            }
+                                            return Ok(());
+                                        }
+                                    } else {
+                                        return Err(String::from("No DMX connection found !"));
                                     }
+                                } else {
+                                    return Err(format!("{} is not in range 1..=512", dmx_channel));
                                 }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn osc_message_soundlist(&mut self, osc_message: &OscMessage, osc_path: &[&str]) {
-        if osc_path[2] == "LocalVolume" {
-            if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
-                for arg in osc_message.args.clone() {
-                    if let Some(new_volume) = arg.float() {
-                        let index = if osc_path[3] == "Selected" {
-                            if self.selected_tab != 0 {
-                                self.selected_tab = 0;
-                            }
-                            if input.is_selected {
-                                input.is_selected = false;
-                            }
-                            if !soundlist.selected {
-                                soundlist.selected = true;
-                            }
-
-                            match soundlist.state.selected() {
-                                Some(v) => v,
-                                None => {
-                                    soundlist.prompt_selection();
-                                    soundlist.state.selected().unwrap()
-                                }
+                            } else {
+                                return Err(format!("Cannot Convert {} to usize", chan_str));
                             }
                         } else {
-                            match osc_path[3].parse::<usize>() {
-                                Ok(number) => {
-                                    if soundlist.sound_files.len() <= number {
-                                        0
-                                    } else {
-                                        number
+                            return Err(format!("{} is not in range 0..=255", dmx_value_i32));
+                        }
+                    } else {
+                        return Err(format!("{:?} is not an Int !", osc_type));
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "Invalid channel or value : {} <= This must be between 1 and 512 {:?}",
+                        osc_path[3], osc_message.args[0]
+                    ))
+                }
+            }
+        }
+        Err(format!("Invalid DMX Channel : {}", osc_path[2]))
+    }
+
+    fn osc_message_soundlist(
+        &mut self,
+        osc_message: &OscMessage,
+        osc_path: &[&str],
+    ) -> Result<(), String> {
+        if osc_path[2] == "LocalVolume" {
+            if let Content::MainMenu(soundlist, input) = &mut self.tabs[0].content {
+                let value = osc_message.args.first();
+                if let Some(value) = value {
+                    if let Some(new_volume) = value.clone().float() {
+                        if osc_path.get(3).is_some() {
+                            let index = if osc_path[3] == "Selected" {
+                                if self.selected_tab != 0 {
+                                    self.selected_tab = 0;
+                                }
+                                if input.is_selected {
+                                    input.is_selected = false;
+                                }
+                                if !soundlist.selected {
+                                    soundlist.selected = true;
+                                }
+
+                                match soundlist.state.selected() {
+                                    Some(v) => v,
+                                    None => {
+                                        soundlist.prompt_selection();
+                                        soundlist.state.selected().unwrap()
                                     }
                                 }
-                                Err(_e) => 0,
+                            } else {
+                                match osc_path[3].parse::<usize>() {
+                                    Ok(number) => {
+                                        if soundlist.sound_files.len() <= number {
+                                            0
+                                        } else {
+                                            number
+                                        }
+                                    }
+                                    Err(_e) => 0,
+                                }
+                            };
+                            let res1 = soundlist.modify_local_volume(index, new_volume);
+                            let mut res2 = Ok(());
+                            if soundlist.currently_playing == soundlist.sound_files[index].name {
+                                if let Some(sender) = &mut self.sender {
+                                    // Send local volume
+                                    res2 = sender.send(component::MusicState::LocalVolumeChanged(
+                                        soundlist.get_local_volume_of_item_index(index),
+                                    ));
+                                }
                             }
-                        };
+                            match (res1, res2) {
+                            (Ok(_), Ok(_)) => {
+                                            if let Content::Osc(ipinput) = &mut self.tabs[1].content
+                                            {
+                                                ipinput.update_info(format!("Local Volume of item {} Changed to {}",index,new_volume));
+                                            }
 
-                        if soundlist.modify_local_volume(index, new_volume).is_ok() {};
-                        if soundlist.currently_playing == soundlist.sound_files[index].name {
-                            if let Some(sender) = &mut self.sender {
-                                // Send local volume
-                                let _ = sender.send(component::MusicState::LocalVolumeChanged(
-                                    soundlist.get_local_volume_of_item_index(index),
-                                ));
-                                {}
+                                return Ok(())
+                            },
+                            (Err(e), Ok(())) => {
+                                return Err(format!("Error while modifying local volume : {e}"))
+                            }
+                            (Ok(_), Err(e)) => return Err(format!(
+                                "Error while modifying local volume of a playing sound file : {e}"
+                            )),
+                            (Err(e1), Err(e2)) => {
+                                return Err(format!("Error while modifying local volume of a playing sound file with two errors : \n{}\n{}",e1,e2))
                             }
                         }
+                        } else {
+                            return Err("Missing OSC path index of item, ex : Selected | 1 | 125 <= Sound Index".to_owned());
+                        }
+                    } else {
+                        return Err(format!("Argument Value {:?} is not a Float", value));
                     }
+                } else {
+                    return Err("Argument Value not provided".to_owned());
                 }
             }
         }
         if osc_path[2] == "Volume" {
             if let Content::MainMenu(soundlist, _input) = &mut self.tabs[0].content {
+                if osc_message.args.is_empty() {
+                    return Err("No Volume Value provided".to_owned());
+                }
                 for arg in osc_message.args.clone() {
-                    if let Some(v) = arg.float() {
+                    if let Some(v) = arg.clone().float() {
                         soundlist.volume = v;
                         if let Some(sender) = &mut self.sender {
                             let _ =
                                 sender.send(component::MusicState::VolumeChanged(soundlist.volume));
-                            {};
+                            {
+                                if let Content::Osc(ipinput) = &mut self.tabs[1].content {
+                                    ipinput.update_info(format!("General Volume set to {v}"));
+                                }
+                                return Ok(());
+                            };
                         }
+                    } else {
+                        return Err(format!("{:?}, is not a float", arg));
                     }
                 }
+            } else {
+                return Err("Cannot modify Volume if there is no Main Menu".to_owned());
             }
         }
         if osc_path[2] == "Stop" {
@@ -214,8 +291,15 @@ impl TabManager {
                 soundlist.currently_playing.clear();
                 if let Some(x) = &mut self.sender {
                     let _ = x.send(component::MusicState::Remove);
-                    {};
+                    {
+                        if let Content::Osc(ipinput) = &mut self.tabs[1].content {
+                            ipinput.update_info("Sound Stoped".to_string());
+                        }
+                        return Ok(());
+                    };
                 }
+            } else {
+                return Err("Can't Stop a Sound if there is no Main Menu".to_owned());
             }
         }
         if osc_path[2] == "Play" {
@@ -275,7 +359,10 @@ impl TabManager {
                     }
                 };
                 if soundlist.sound_files.is_empty() {
-                    return;
+                    return Err(format!(
+                        "There are no Sound Files found in {}",
+                        soundlist.current_dir
+                    ));
                 }
                 if let Some(sender) = &mut self.sender {
                     let _ = sender.send(component::MusicState::Remove);
@@ -307,7 +394,9 @@ impl TabManager {
 
                 soundlist.play(wtr, wts, index, fade_in_duration, fade_out_duration);
             }
+            return Ok(());
         }
+        Err(format!("Invalid OSC path : {}", osc_path[2]))
     }
 
     pub fn handle_event(&mut self, event: ratatui::crossterm::event::Event) {
@@ -958,5 +1047,111 @@ fn fade_tab(soundlist: &mut SoundList, key: KeyCode, keymod: KeyModifiers) {
             soundlist.toggle_fade_edition();
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rosc::OscType;
+
+    use super::*;
+
+    fn test_osc(adr: &str, arg: Option<OscType>, expected: &str) {
+        let mut t = TabManager::new();
+        let res = t.osc_message_interaction(OscMessage {
+            addr: adr.to_owned(),
+            args: if arg.is_some() {
+                vec![arg.unwrap()]
+            } else {
+                vec![]
+            },
+        });
+        assert_eq!(res, Err(expected.to_string()))
+    }
+
+    #[test]
+    fn no_dmx_connection() {
+        test_osc(
+            "/OscControl/DMXChan/8",
+            Some(OscType::Int(255)),
+            "No DMX connection found !",
+        );
+    }
+    #[test]
+    fn dmx_addr_overflow() {
+        test_osc(
+            "/OscControl/DMXChan/513",
+            Some(OscType::Int(200)),
+            "Invalid channel or value : 513 <= This must be between 1 and 512 Int(200)",
+        );
+    }
+    #[test]
+    fn dmx_addr_0() {
+        test_osc(
+            "/OscControl/DMXChan/0",
+            Some(OscType::Int(200)),
+            "Invalid channel or value : 0 <= This must be between 1 and 512 Int(200)",
+        );
+    }
+    #[test]
+    fn dmx_value_overflow() {
+        test_osc(
+            "/OscControl/DMXChan/5",
+            Some(OscType::Int(256)),
+            "256 is not in range 0..=255",
+        );
+    }
+    #[test]
+    fn dmx_value_wrong_type() {
+        test_osc(
+            "/OscControl/DMXChan/5",
+            Some(OscType::Float(10.5)),
+            "Float(10.5) is not an Int !",
+        );
+    }
+    #[test]
+    fn dmx_osc_path_verification() {
+        test_osc(
+            "/OscControl/DMX/200",
+            Some(OscType::Int(10)),
+            "Invalid OSC path : DMX",
+        );
+    }
+    #[test]
+    fn no_volume_value() {
+        test_osc("/OscControl/Volume", None, "No Volume Value provided");
+    }
+    #[test]
+    fn volume_wrong_type() {
+        test_osc(
+            "/OscControl/Volume",
+            Some(OscType::Int(1)),
+            "Int(1), is not a float",
+        );
+    }
+    #[test]
+    fn localvolume_no_value() {
+        test_osc(
+            "/OscControl/LocalVolume/Selected",
+            None,
+            "Argument Value not provided",
+        );
+    }
+    #[test]
+    fn localvolume_missing_index() {
+        test_osc(
+            "/OscControl/LocalVolume",
+            Some(OscType::Float(10.0)),
+            "Missing OSC path index of item, ex : Selected | 1 | 125 <= Sound Index",
+        );
+    }
+
+    #[test]
+    fn localvolume_wrong_type() {
+        test_osc(
+            "/OscControl/LocalVolume/Selected",
+            Some(OscType::String("Test".to_owned())),
+            "Argument Value String(\"Test\") is not a Float",
+        );
     }
 }

@@ -241,6 +241,7 @@ pub struct IPInput {
     pub title: String,
     character_index: usize,
     pub _osc_receiver: Option<OscPacket>,
+    pub last_action_widget: OscInfoWidget,
 }
 
 impl IPInput {
@@ -253,7 +254,12 @@ impl IPInput {
             edit_mode: false,
             character_index: 0,
             _osc_receiver: None,
+            last_action_widget: OscInfoWidget::new(),
         }
+    }
+
+    pub fn update_info(&mut self, new_info: impl Into<String>) {
+        self.last_action_widget.update(new_info.into());
     }
 
     pub fn toggle_edit_mode(&mut self) -> Result<Receiver<OscPacket>, ()> {
@@ -469,7 +475,7 @@ impl SoundList {
             Ok(())
         } else {
             Err(format!(
-                "Index : [{}] is out of bound \n    => Lenght : {}\n    {} <= {}",
+                "Index : [{}] is out of bound \n    => Length : {}\n    {} <= {}",
                 index,
                 self.sound_files.len() - 1,
                 index,
@@ -739,5 +745,21 @@ impl SoundList {
 
     pub fn update(&mut self) {
         self.sound_files = SoundList::get_sound_files_from_dir(self.current_dir.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct OscInfoWidget {
+    info: String,
+}
+
+impl OscInfoWidget {
+    fn new() -> Self {
+        Self {
+            info: String::new(),
+        }
+    }
+    fn update(&mut self, new_info: String) {
+        self.info = new_info
     }
 }
