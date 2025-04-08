@@ -1,0 +1,34 @@
+[controls]
+selected_type = 'Keyboard'
+
+[controls.keyboard_map]
+Left = ['A']
+B = ['LShift']
+Start = ['Return']
+Down = ['S']
+Select = ['K']
+Right = ['D']
+Up = ['W']
+A = ['Space']
+
+[color_palette]
+color1 = [
+    8,
+    24,
+    32,
+]
+color2 = [
+    52,
+    104,
+    86,
+]
+color3 = [
+    136,
+    192,
+    112,
+]
+color4 = [
+    224,
+    248,
+    208,
+]

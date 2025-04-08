@@ -5,7 +5,6 @@ use component::IPInput;
 use component::MusicState;
 use component::{Content, Input, SoundList, Tab};
 use core::panic;
-use open_dmx::DMXSerial;
 use open_dmx::DMX_CHANNELS;
 use ratatui::crossterm::event::KeyEvent;
 use ratatui::crossterm::event::KeyEventKind;
@@ -21,6 +20,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 use std::vec;
 
+use crate::dmx::DMXHandler;
+
 #[derive(Debug)]
 pub struct TabManager {
     pub tabs: Vec<Tab>,
@@ -28,73 +29,10 @@ pub struct TabManager {
     pub sender: Option<Sender<MusicState>>,
     pub receiver: Option<Receiver<f32>>,
     pub osc_receiver: Option<Receiver<OscPacket>>,
-    pub dmx: Option<DMXSerial>,
+    pub dmx_handler: DMXHandler,
 }
 
 impl TabManager {
-    fn new() -> Self {
-        let args: Vec<_> = env::args().collect();
-        let mut app = TabManager {
-            tabs: vec![
-                Tab {
-                    content: Content::MainMenu(
-                        SoundList::from_dir(if args.len() > 1 {
-                            args[1].clone()
-                        } else {
-                            String::new()
-                        }),
-                        Input {
-                            input_field_title: "Path".to_owned(),
-                            is_selected: true,
-                            input: if args.len() > 1 {
-                                args[1].clone()
-                            } else {
-                                String::new()
-                            },
-                            ..Default::default()
-                        },
-                    ),
-                },
-                Tab {
-                    content: Content::Osc(IPInput::new("Host IP:PORT".to_owned())),
-                },
-                Tab {
-                    content: Content::Dmx(
-                        DMXInput {
-                            title: "Dimmer".to_owned(),
-                            ..Default::default()
-                        },
-                        DMXInput {
-                            title: "R".to_owned(),
-                            ..Default::default()
-                        },
-                        DMXInput {
-                            title: "V".to_owned(),
-                            ..Default::default()
-                        },
-                        DMXInput {
-                            title: "B".to_owned(),
-                            ..Default::default()
-                        },
-                        Box::new(1),
-                        String::new(),
-                        String::new(),
-                    ),
-                },
-            ],
-            selected_tab: 0,
-            sender: None,
-            receiver: None,
-            osc_receiver: None,
-            dmx: None,
-        };
-        //CLI
-        if args.len() > 1 {
-            app.tabs[0].next_content_element();
-        }
-        app
-    }
-
     pub fn get_selected_tab(&mut self) -> &mut Tab {
         &mut self.tabs[self.selected_tab]
     }
@@ -153,9 +91,11 @@ impl TabManager {
                         if (0..=255).contains(dmx_value_i32) {
                             if let Ok(dmx_channel) = chan_str.parse::<usize>() {
                                 if (1..DMX_CHANNELS).contains(&dmx_channel) {
-                                    if let Some(dmx) = &mut self.dmx {
-                                        if dmx.check_agent().is_ok()
-                                            && dmx
+                                    if let Some(dmx_connection) =
+                                        &mut self.dmx_handler.dmx_connection_option
+                                    {
+                                        if dmx_connection.check_agent().is_ok()
+                                            && dmx_connection
                                                 .set_channel(dmx_channel, *dmx_value_i32 as u8)
                                                 .is_ok()
                                         {
@@ -184,9 +124,11 @@ impl TabManager {
                         if (0..=255).contains(&(dmx_value_f32.round() as i32)) {
                             if let Ok(dmx_channel) = chan_str.parse::<usize>() {
                                 if (1..DMX_CHANNELS).contains(&dmx_channel) {
-                                    if let Some(dmx) = &mut self.dmx {
-                                        if dmx.check_agent().is_ok()
-                                            && dmx
+                                    if let Some(dmx_connection) =
+                                        &mut self.dmx_handler.dmx_connection_option
+                                    {
+                                        if dmx_connection.check_agent().is_ok()
+                                            && dmx_connection
                                                 .set_channel(
                                                     dmx_channel,
                                                     dmx_value_f32.round() as u8,
@@ -511,7 +453,7 @@ impl TabManager {
                                         }
                                     }
                                 }
-                                KeyCode::Up => {
+                                KeyCode::Up | KeyCode::Char('k' | 'K') => {
                                     sound_list.previous_song();
                                     return;
                                 }
@@ -542,7 +484,7 @@ impl TabManager {
                                         }
                                     }
                                 }
-                                KeyCode::Down => {
+                                KeyCode::Down | KeyCode::Char('j' | 'J') => {
                                     sound_list.next_song();
                                     return;
                                 }
@@ -765,21 +707,22 @@ impl TabManager {
                     _ => (),
                 }
             }
-            Content::Dmx(fader1, fader2, fader3, fader4, adr, serial, _dmx_status)
+            Content::Dmx(f1, f2, f3, f4, adr, serial, _dmx_status)
                 if key.kind == KeyEventKind::Press =>
             {
                 match key.code {
                     KeyCode::Up => {
-                        if self.dmx.is_some() {
+                        if self.dmx_handler.dmx_connection_option.is_some() {
                             if key.modifiers == KeyModifiers::ALT {
                                 if **adr != open_dmx::DMX_CHANNELS - 3 {
                                     **adr = adr.saturating_add(1);
-                                    self.update_dmx();
+                                    self.dmx_handler
+                                        .update_dmx(&mut self.tabs[self.selected_tab].content);
                                     return;
                                 }
                                 return;
                             }
-                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
+                            let mut dmx_faders = [f1, f2, f3, f4];
                             dmx_faders.iter_mut().for_each(|dmx_fader| {
                                 if dmx_fader.is_focused {
                                     if key.modifiers == KeyModifiers::CONTROL {
@@ -789,20 +732,22 @@ impl TabManager {
                                     }
                                 }
                             });
-                            self.update_dmx();
+                            self.dmx_handler
+                                .update_dmx(&mut self.tabs[self.selected_tab].content);
                         }
                     }
                     KeyCode::Down => {
-                        if self.dmx.is_some() {
+                        if self.dmx_handler.dmx_connection_option.is_some() {
                             if key.modifiers == KeyModifiers::ALT {
                                 if **adr != 1 {
                                     **adr = adr.saturating_sub(1);
-                                    self.update_dmx();
+                                    self.dmx_handler
+                                        .update_dmx(&mut self.tabs[self.selected_tab].content);
                                     return;
                                 }
                                 return;
                             }
-                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
+                            let mut dmx_faders = [f1, f2, f3, f4];
                             dmx_faders.iter_mut().for_each(|dmx_fader| {
                                 if dmx_fader.is_focused {
                                     if key.modifiers == KeyModifiers::CONTROL {
@@ -812,15 +757,17 @@ impl TabManager {
                                     }
                                 }
                             });
-                            self.update_dmx();
+                            self.dmx_handler
+                                .update_dmx(&mut self.tabs[self.selected_tab].content);
                         }
                     }
                     KeyCode::Char(char) => {
-                        if self.dmx.is_some() && key.modifiers == KeyModifiers::NONE {
-                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
+                        if self.dmx_handler.dmx_connection_option.is_some()
+                            && key.modifiers == KeyModifiers::NONE
+                        {
+                            let mut dmx_faders = [f1, f2, f3, f4];
 
                             if char.is_ascii_digit() {
-                                // Have to check if this works correctly
                                 dmx_faders
                                     .iter_mut()
                                     .find(|d| d.is_focused)
@@ -830,7 +777,8 @@ impl TabManager {
                                             .parse::<u8>()
                                             .unwrap_or(255);
                                     });
-                                self.update_dmx();
+                                self.dmx_handler
+                                    .update_dmx(&mut self.tabs[self.selected_tab].content);
                                 return;
                             } else if matches!(char, 'f' | 'F') {
                                 dmx_faders.iter_mut().for_each(|dmx_fader| {
@@ -847,15 +795,16 @@ impl TabManager {
                                 });
                                 return;
                             }
-                            self.update_dmx();
+                            self.dmx_handler
+                                .update_dmx(&mut self.tabs[self.selected_tab].content);
                             return;
                         }
-                        if self.dmx.is_none() {
+                        if self.dmx_handler.dmx_connection_option.is_none() {
                             serial.push(char);
                         }
                     }
                     KeyCode::Backspace => {
-                        if self.dmx.is_none() {
+                        if self.dmx_handler.dmx_connection_option.is_none() {
                             match key.modifiers {
                                 KeyModifiers::CONTROL => {
                                     serial.clear();
@@ -867,18 +816,19 @@ impl TabManager {
                             return;
                         }
                         // If dmx connection :
-                        if self.dmx.is_some() {
+                        if self.dmx_handler.dmx_connection_option.is_some() {
                             if key.modifiers == KeyModifiers::ALT {
                                 **adr = 1;
                                 return;
                             }
-                            let mut dmx_faders = [fader1, fader2, fader3, fader4];
+                            let mut dmx_faders = [f1, f2, f3, f4];
                             let focused = dmx_faders
                                 .iter_mut()
                                 .find(|dmx_fader| dmx_fader.is_focused)
                                 .unwrap();
                             focused.value = 0;
-                            self.update_dmx();
+                            self.dmx_handler
+                                .update_dmx(&mut self.tabs[self.selected_tab].content);
                         }
                     }
                     _ => {}
@@ -906,34 +856,75 @@ impl TabManager {
         }
     }
     fn handle_event_resize(&mut self, _x: u16, _y: u16) {}
-
-    fn update_dmx(&mut self) {
-        if let Content::Dmx(dimmer, r, g, b, adr, _serial, dmx_status) =
-            &mut self.tabs[self.selected_tab].content
-        {
-            if let Some(dmx_chan) = &mut self.dmx {
-                let mut dmxs = [dimmer, r, g, b];
-                dmxs.iter_mut().enumerate().for_each(|(id, dmx)| {
-                    let dmx_channel_adress: usize = adr.wrapping_add(id).clamp(1, DMX_CHANNELS);
-                    match open_dmx::check_valid_channel(dmx_channel_adress) {
-                        Ok(_) => {
-                            if dmx_chan.set_channel(dmx_channel_adress, dmx.value).is_ok() {
-                                // DMX SUCESSFULY SET TO VALUE
-                                *dmx_status =
-                                    format!("set {} to {}", dmx_channel_adress, dmx.value);
-                            }
-                        }
-                        Err(e) => *dmx_status = format!("{}", e),
-                    }
-                });
-            }
-        }
-    }
 }
 
 impl Default for TabManager {
     fn default() -> Self {
-        TabManager::new()
+        let args: Vec<_> = env::args().collect();
+        let mut dmx_content = Content::Dmx(
+            DMXInput {
+                title: "Dimmer".to_owned(),
+                ..Default::default()
+            },
+            DMXInput {
+                title: "R".to_owned(),
+                ..Default::default()
+            },
+            DMXInput {
+                title: "V".to_owned(),
+                ..Default::default()
+            },
+            DMXInput {
+                title: "B".to_owned(),
+                ..Default::default()
+            },
+            Box::new(1),
+            String::new(),
+            String::new(),
+        );
+        let dmx_handler = match DMXHandler::open_dmx(&mut dmx_content) {
+            Ok(dmx_handler) => dmx_handler,
+            Err(empty_dmx_handler) => empty_dmx_handler,
+        };
+        let mut app = TabManager {
+            tabs: vec![
+                Tab {
+                    content: Content::MainMenu(
+                        SoundList::from_dir(if args.len() > 1 {
+                            args[1].clone()
+                        } else {
+                            String::new()
+                        }),
+                        Input {
+                            input_field_title: "Path".to_owned(),
+                            is_selected: true,
+                            input: if args.len() > 1 {
+                                args[1].clone()
+                            } else {
+                                String::new()
+                            },
+                            ..Default::default()
+                        },
+                    ),
+                },
+                Tab {
+                    content: Content::Osc(IPInput::new("Host IP:PORT".to_owned())),
+                },
+                Tab {
+                    content: dmx_content,
+                },
+            ],
+            selected_tab: 0,
+            sender: None,
+            receiver: None,
+            osc_receiver: None,
+            dmx_handler,
+        };
+        //CLI
+        if args.len() > 1 {
+            app.tabs[0].next_content_element();
+        }
+        app
     }
 }
 
@@ -1118,7 +1109,7 @@ mod test {
     use super::*;
 
     fn test_osc(adr: &str, arg: Option<OscType>, expected: &str) {
-        let mut t = TabManager::new();
+        let mut t = TabManager::default();
         let res = t.osc_message_interaction(OscMessage {
             addr: adr.to_owned(),
             args: if arg.is_some() {

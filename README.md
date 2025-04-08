@@ -7,7 +7,7 @@
 Tabs|Shortcuts
 --- | ---
 Change tab | Shift + Arrow left/Right
-Navigate | Shift + Arrow Up/Down
+Navigate | Shift + Arrow Up/Down OR J/K
 Quit | Ctrl + C / Ctrl + Q
 
 
