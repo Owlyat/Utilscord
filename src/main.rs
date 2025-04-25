@@ -1,7 +1,7 @@
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui_explorer::FileExplorer;
-use std::rc::Rc;
 use std::time::Duration;
+use std::{path::Path, rc::Rc};
 
 #[path = "applib/interact.rs"]
 mod interact_mod;
@@ -28,6 +28,14 @@ impl Utilscord {
     pub fn run(&mut self) {
         let mut terminal = ratatui::init();
         let mut file_explorer = FileExplorer::new().unwrap();
+        file_explorer
+            .set_cwd(
+                std::fs::canonicalize(Path::new("."))
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+            .unwrap();
         loop {
             if self.should_quit {
                 break;
