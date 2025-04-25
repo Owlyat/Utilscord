@@ -1,0 +1,12 @@
+[package]
+name = "Utilscord"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lofty = "0.21.1"
+open_dmx = "1.1.1"
+ratatui = "0.29.0"
+ratatui-explorer = "0.2.0"
+rodio = "0.20.1"
+rosc = "0.10.1"
