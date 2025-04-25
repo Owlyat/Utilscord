@@ -11,6 +11,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::net::{SocketAddrV4, UdpSocket};
 use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
@@ -507,13 +508,12 @@ impl SoundList {
             let soundlist = arc_self.lock().unwrap();
             let (_stream, stream_handle) = OutputStream::try_default().unwrap();
             let sink = Sink::try_new(&stream_handle).unwrap();
-            let file = BufReader::new(
-                File::open(format!(
-                    "{}/{}",
-                    soundlist.current_dir, soundlist.sound_files[index].name
-                ))
-                .unwrap(),
-            );
+            let sound_name = soundlist.sound_files[index].name.clone();
+            let mut sound_path = PathBuf::from(soundlist.current_dir.clone());
+            sound_path.push(sound_name);
+
+            let file =
+                BufReader::new(File::open(std::fs::canonicalize(sound_path).unwrap()).unwrap());
             let source = Decoder::new(file).unwrap();
             match (fade_in, fade_out) {
                 (Some(fade_in), Some(fade_out)) => {
